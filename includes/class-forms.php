@@ -26,7 +26,7 @@ class TTB_Forms {
     if (!isset($_POST['ttb_save_form'])) return;
 
     $client_id = $auth->client_id();
-    $service = sanitize_text_field($_POST['service'] ?? '');
+    $service   = sanitize_text_field($_POST['service'] ?? '');
     if (!in_array($service, ['design','social','seo','web'], true)) return;
 
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_form_'.$service)) {
@@ -37,7 +37,7 @@ class TTB_Forms {
 
     $schema  = self::get_schema($service);
     $answers = [];
-    $errors  = []; // [ field_id => mensaje ]
+    $errors  = [];
 
     foreach ($schema as $f) {
       $id = $f['id'] ?? '';
@@ -73,7 +73,7 @@ class TTB_Forms {
       $answers[$id] = $val;
     }
 
-    // Si hay errores: guardar en transient y redirigir al mismo briefing
+    // Errores → transients y redirect
     if ($errors) {
       set_transient('ttb_form_errors_' . $client_id . '_' . $service, $errors, 120);
       set_transient('ttb_form_values_' . $client_id . '_' . $service, $answers, 120);
@@ -96,11 +96,46 @@ class TTB_Forms {
 
     $this->update_client_status($client_id);
 
-    // Limpiar transients si había errores anteriores
     delete_transient('ttb_form_errors_' . $client_id . '_' . $service);
     delete_transient('ttb_form_values_' . $client_id . '_' . $service);
 
-    $auth->flash('success', $sent ? 'Briefing enviado correctamente.' : 'Guardado correctamente.');
+    if ($sent) {
+      // Datos del cliente
+      $clients_table = TTB_DB::clients_table();
+      $client = $wpdb->get_row($wpdb->prepare("SELECT name, email FROM $clients_table WHERE id=%d", $client_id));
+
+      if ($client) {
+        $client_name = (string)$client->name;
+        $client_email = (string)$client->email;
+
+        // 1. Email al departamento
+        (new TTB_Mailer())->send_department_alert($client_name, $client_email, $service);
+
+        // 2. Subir a Google Drive (en background — si falla no bloquea al usuario)
+        try {
+          $drive    = new TTB_Drive();
+          $doc_url  = $drive->create_briefing_doc($client_name, $service, $schema, $answers);
+
+          // Guardar la URL del doc en la respuesta para tenerla en el admin
+          if ($doc_url) {
+            $wpdb->query($wpdb->prepare(
+              "UPDATE $table SET answers = JSON_SET(answers, '$.ttb_drive_url', %s)
+               WHERE client_id=%d AND service=%s",
+              $doc_url, $client_id, $service
+            ));
+          }
+        } catch (Exception $e) {
+          error_log('TTB Drive upload failed: ' . $e->getMessage());
+        }
+      }
+
+      // Modal de confirmación
+      set_transient('ttb_show_modal_' . $client_id, $service, 120);
+      wp_safe_redirect(home_url('/briefing') . '#modal-sent');
+      exit;
+    }
+
+    $auth->flash('success', 'Guardado correctamente.');
     wp_safe_redirect(home_url('/briefing'));
     exit;
   }
@@ -134,16 +169,12 @@ class TTB_Forms {
   public static function get_client_answers($client_id, $service) {
     global $wpdb;
     $table = TTB_DB::answers_table();
-    $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE client_id=%d AND service=%s", $client_id, $service));
+    $row   = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE client_id=%d AND service=%s", $client_id, $service));
     if (!$row) return ['answers'=>[], 'sent'=>0];
     $a = json_decode((string)$row->answers, true);
-    return ['answers'=> is_array($a)?$a:[], 'sent'=>(int)$row->sent];
+    return ['answers'=> is_array($a) ? $a : [], 'sent'=>(int)$row->sent];
   }
 
-  /**
-   * Recupera errores y valores temporales del transient para un servicio dado.
-   * Devuelve ['errors'=>[], 'values'=>[]] y borra los transients.
-   */
   public static function consume_form_state($client_id, $service) {
     $key_e  = 'ttb_form_errors_' . $client_id . '_' . $service;
     $key_v  = 'ttb_form_values_' . $client_id . '_' . $service;
@@ -152,5 +183,12 @@ class TTB_Forms {
     delete_transient($key_e);
     delete_transient($key_v);
     return ['errors' => $errors, 'values' => $values];
+  }
+
+  public static function consume_modal($client_id) {
+    $key = 'ttb_show_modal_' . $client_id;
+    $svc = get_transient($key);
+    if ($svc) delete_transient($key);
+    return $svc ?: null;
   }
 }
