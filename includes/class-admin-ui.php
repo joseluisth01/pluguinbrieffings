@@ -20,7 +20,6 @@ class TTB_Admin_UI {
     echo '<div class="ttb-container">';
     echo '<div class="ttb-card ttb-card--header">';
     echo '<h2>Administrador Briefing</h2>';
-    echo '<p class="ttb-muted">Gestión completa desde /briefing (sin wp-admin).</p>';
     echo '</div>';
 
     echo '<div class="ttb-tabs">';

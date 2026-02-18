@@ -35,16 +35,16 @@ class TTB_Forms {
       exit;
     }
 
-    $schema = self::get_schema($service);
+    $schema  = self::get_schema($service);
     $answers = [];
-    $missing = [];
+    $errors  = []; // [ field_id => mensaje ]
 
     foreach ($schema as $f) {
       $id = $f['id'] ?? '';
       if (!$id) continue;
 
       $required = !empty($f['required']);
-      $type = $f['type'] ?? 'text';
+      $type     = $f['type'] ?? 'text';
 
       $val = $_POST['f'][$id] ?? '';
       if (is_array($val)) {
@@ -53,25 +53,39 @@ class TTB_Forms {
         $val = sanitize_textarea_field((string)$val);
       }
 
-      if ($type === 'email') $val = sanitize_email((string)$val);
-      if ($type === 'url') $val = esc_url_raw((string)$val);
-
-      $empty = (is_array($val) && empty($val)) || (!is_array($val) && trim((string)$val) === '');
-      if ($required && $empty) $missing[] = ($f['label'] ?? $id);
+      if ($type === 'email') {
+        $val = sanitize_email((string)$val);
+        if ($required && !is_email($val)) {
+          $errors[$id] = 'Introduce un email válido.';
+        }
+      } elseif ($type === 'url') {
+        $val = esc_url_raw((string)$val);
+        if ($required && empty(trim($val))) {
+          $errors[$id] = 'Este campo es obligatorio.';
+        }
+      } else {
+        $empty = (is_array($val) && empty($val)) || (!is_array($val) && trim((string)$val) === '');
+        if ($required && $empty) {
+          $errors[$id] = 'Este campo es obligatorio.';
+        }
+      }
 
       $answers[$id] = $val;
     }
 
-    if ($missing) {
-      $auth->flash('error', 'Faltan campos obligatorios: '.implode(', ', $missing));
+    // Si hay errores: guardar en transient y redirigir al mismo briefing
+    if ($errors) {
+      set_transient('ttb_form_errors_' . $client_id . '_' . $service, $errors, 120);
+      set_transient('ttb_form_values_' . $client_id . '_' . $service, $answers, 120);
+      $auth->flash('error', 'Por favor, corrige los errores marcados en el formulario.');
       wp_safe_redirect(home_url('/briefing'));
       exit;
     }
 
     global $wpdb;
     $table = TTB_DB::answers_table();
-    $mode = sanitize_text_field($_POST['submit_mode'] ?? 'save');
-    $sent = ($mode === 'send') ? 1 : 0;
+    $mode  = sanitize_text_field($_POST['submit_mode'] ?? 'save');
+    $sent  = ($mode === 'send') ? 1 : 0;
 
     $wpdb->query($wpdb->prepare(
       "INSERT INTO $table (client_id, service, answers, sent, updated_at)
@@ -80,8 +94,11 @@ class TTB_Forms {
       $client_id, $service, wp_json_encode($answers, JSON_UNESCAPED_UNICODE), $sent, TTB_DB::now()
     ));
 
-    // estado cliente
     $this->update_client_status($client_id);
+
+    // Limpiar transients si había errores anteriores
+    delete_transient('ttb_form_errors_' . $client_id . '_' . $service);
+    delete_transient('ttb_form_values_' . $client_id . '_' . $service);
 
     $auth->flash('success', $sent ? 'Briefing enviado correctamente.' : 'Guardado correctamente.');
     wp_safe_redirect(home_url('/briefing'));
@@ -121,5 +138,19 @@ class TTB_Forms {
     if (!$row) return ['answers'=>[], 'sent'=>0];
     $a = json_decode((string)$row->answers, true);
     return ['answers'=> is_array($a)?$a:[], 'sent'=>(int)$row->sent];
+  }
+
+  /**
+   * Recupera errores y valores temporales del transient para un servicio dado.
+   * Devuelve ['errors'=>[], 'values'=>[]] y borra los transients.
+   */
+  public static function consume_form_state($client_id, $service) {
+    $key_e  = 'ttb_form_errors_' . $client_id . '_' . $service;
+    $key_v  = 'ttb_form_values_' . $client_id . '_' . $service;
+    $errors = get_transient($key_e) ?: [];
+    $values = get_transient($key_v) ?: [];
+    delete_transient($key_e);
+    delete_transient($key_v);
+    return ['errors' => $errors, 'values' => $values];
   }
 }

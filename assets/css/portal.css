@@ -9,13 +9,11 @@
 }
 
 .ttb-portal{
-  background: var(--ttb-bg);
   padding-bottom: 40px;
 }
 
 .ttb-top{
   background: linear-gradient(90deg, var(--ttb-pink), #e63a86);
-  border-radius: 0 0 28px 28px;
   box-shadow: 0 10px 30px rgba(0,0,0,.10);
 }
 
@@ -25,12 +23,12 @@
   padding: 14px 16px;
   display:flex;
   align-items:center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
 }
 
 .ttb-brand img{
-  height: 40px;
+  height: 60px;
   width:auto;
   display:block;
   filter: drop-shadow(0 6px 16px rgba(0,0,0,.15));
@@ -73,6 +71,8 @@
 .ttb-login__head h1{
   margin:0 0 6px;
   color: var(--ttb-text);
+  text-align: center;
+  text-transform: uppercase;
 }
 .ttb-muted{ color: var(--ttb-muted); margin: 0; }
 
@@ -207,3 +207,41 @@
 }
 .ttb-q__l{ font-weight:900; margin-bottom: 6px; color: var(--ttb-text); }
 .ttb-q__a{ color: var(--ttb-text); }
+
+/* ── Errores de campo ── */
+.ttb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ttb-input--invalid,
+.ttb-textarea.ttb-input--invalid {
+  border-color: #f43f5e;
+  background: #fff1f2;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(244,63,94,.15);
+}
+.ttb-input--invalid:focus,
+.ttb-textarea.ttb-input--invalid:focus {
+  box-shadow: 0 0 0 3px rgba(244,63,94,.25);
+}
+
+.ttb-field-error {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e11d48;
+  margin-top: 2px;
+}
+
+.ttb-required {
+  color: #e11d48;
+  margin-left: 1px;
+}
+
+.ttb-card--has-errors {
+  border-color: #fecdd3;
+  box-shadow: 0 12px 26px rgba(244,63,94,.10);
+}
