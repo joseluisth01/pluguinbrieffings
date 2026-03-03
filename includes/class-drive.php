@@ -10,6 +10,7 @@ class TTB_Drive {
 
   const FOLDER_ID    = '17HJ0F4PePs9DxnJM8J6zAjCuU90MS6LQ';
   const CLIENT_EMAIL = 'briefing-bot@tictac-441710.iam.gserviceaccount.com';
+  const OWNER_EMAIL  = 'hola@tictac-comunicacion.es'; // ← propietario real de los docs
   const PRIVATE_KEY  = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDBoimLhqZ6qg06\n9v3lcE/N7IJmxvKE0x7MEDoullt7L63GhaysleAqbyJtpexDpvP8I3I510OlAYxe\nm8Og1QBHphdGVbx4r3PkPrFbRAlz84YF8IPrdSb4PcbF/dKH3OhzpF72g0wnGvQe\nkfrlKYl78ZafFWtye/95ernODOrT7akF++1KDvyIwx2CfnM/+bhVu6Ovcg6f2R/V\nWJBgvxXC6CCQtomSDarfE4bGD6mrIXg59Po6Mbl4Ph0th9wkF5O1A9Zrd3MA6/G4\nruF6V4vh4uFlF26DQuD5L+50wLrhkz0tRzjIYGc09cq5ET/6QtN15nW3zhkGaa9e\n4igJ4uDvAgMBAAECggEAHn7dHynWN1Rn4AT9SLDPCMX6ZZhooo2jeI0HtMWeY8DH\nFBCCeO3jz5sQJ4ettZvqKigk+cIS175uLopGnaJeOGqKmNuw4qrzTBupkA+fk4Dj\ndzUBechKGmeUUiNfEGG0xF27TQSxrij7EIN6KbRIgFo0mBpmATJRMn8nGzICm9y4\njjw6B23e3VouMQ/UOzTvxXfssV19PaPMpDBowUvtHrgplA3+uR0Gh5Ny/ShuYhnQ\nJLqa7eWzrYSMlDcHSbRo3GAQOEwZ3kBb3ylThBgMtpKhs6D2bNekMOS9jpp9Bwun\nNaJnkpy/KSRSc9XNR0eOjXOkX5YOQLD6azhAqRgE0QKBgQDkfrcz5wa15sAc2y8z\nVSlP8cBARv9mL5Y85rlMxNOY9yn0UNCuq6vtloqLH2Sk85VQdpz68LkdDPk0YSMA\n2DJNVcvuxBfp5JxAmOs0br7sX06Bo8Cxv12WvminQGKS6zrLtTpiaH6DJYe3vDCp\nG8Tgzwq5AF7p5AQFRKHPm4U7EQKBgQDY8Sf4reBsWiH3rnCW6VWMdLTbrlZLJxri\nooBvlDbT0xb+95JZqc7En1URzzwTTNRWVDJ3itXK4ZjDuXEu9lWKzsHt0hmgGAb3\ntjZFntXNsIFkrA3ahVErA8FtC3eZrm0F58VG2pkDmXtN0/vhu9Wd5q7ZS75CQEQg\n7UetdU5b/wKBgHtfmBfkNBFfiHeMOY4j+2x5Ae8y5pAMPbigc4jp9b5wJi0Ovb6y\nXuCoGiJITxVpmEOb5+Luu2TeLmiD0lyQX4i2PKitJKRblaqjZswmx9vlEgSZoF/Z\nDfVo1iUIdLETZem77sxX04eIaiFg8X09yy3/XLDLbHQpc6pMhnoMZQGhAoGADgkM\nHPqi2l+6ctvGTP0rm7qxOMU+r/4Hr0H0LUPZiDrP8g7yWPqzdeUZC93sdRMzaaJo\n4XMKAeY2i/Mjb3ZgcmqOAWTmY4UqbjxLppVwH66bsHexLcISTkYf7X4gbsDqLMeh\n68OYwrLbV12vnhsY5u5VwZk05fRic/7l9ELynuECgYEAnOWU5VEI9iK/defyCHYr\nKTtqt6kZbS/Efus1D8glmiTwM5lLy0N7//hzyuu1r4OnpQD+KJ4cIsQIL2es+whh\nTav5+L3ipZoBY6aKp4kcfBg8nPv63opuZhSd6dXzC5lgeCKdizZjenb9oD7MypK+\nukgP/Fh/swmnehoh3G7IW7E=\n-----END PRIVATE KEY-----\n";
 
   /* ─────────────────────────────────────────────
@@ -32,6 +33,9 @@ class TTB_Drive {
         return null;
       }
 
+      // Transferir propiedad a la cuenta real para no consumir cuota del Service Account
+      $this->transfer_ownership($token, $doc_id);
+
       error_log('TTB_Drive OK: doc creado = ' . $doc_id);
       return 'https://docs.google.com/document/d/' . $doc_id;
 
@@ -49,6 +53,7 @@ class TTB_Drive {
     $header  = $this->base64url(wp_json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
     $payload = $this->base64url(wp_json_encode([
       'iss'   => self::CLIENT_EMAIL,
+      'sub'   => self::OWNER_EMAIL, // actúa en nombre de esta cuenta (DWD)
       'scope' => 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents',
       'aud'   => 'https://oauth2.googleapis.com/token',
       'iat'   => $now,
@@ -80,9 +85,13 @@ class TTB_Drive {
     }
 
     $body = json_decode(wp_remote_retrieve_body($response), true);
-    if (empty($body['access_token'])) {
-      error_log('TTB_Drive ERROR token response: ' . wp_remote_retrieve_body($response));
+
+    if (!empty($body['access_token'])) {
+      error_log('TTB_Drive token OK (longitud: ' . strlen($body['access_token']) . ' chars)');
+    } else {
+      error_log('TTB_Drive token FALLO - respuesta completa: ' . wp_remote_retrieve_body($response));
     }
+
     return $body['access_token'] ?? null;
   }
 
@@ -91,8 +100,7 @@ class TTB_Drive {
   ───────────────────────────────────────────── */
   private function get_or_create_client_folder($token, $client_name) {
     $safe_name = sanitize_text_field($client_name);
-    // Escapar comilla simple para la query
-    $escaped = str_replace("'", "\\'", $safe_name);
+    $escaped = str_replace("'", "\\'", $safe_name . ' - Briefing');
 
     $query = "mimeType='application/vnd.google-apps.folder'"
            . " and name='" . $escaped . "'"
@@ -100,7 +108,7 @@ class TTB_Drive {
            . " and trashed=false";
 
     $resp = wp_remote_get(
-      'https://www.googleapis.com/drive/v3/files?q=' . urlencode($query) . '&fields=files(id,name)',
+      'https://www.googleapis.com/drive/v3/files?q=' . urlencode($query) . '&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true',
       ['headers' => ['Authorization' => 'Bearer ' . $token], 'timeout' => 15]
     );
 
@@ -112,15 +120,15 @@ class TTB_Drive {
     }
 
     // Crear carpeta
-    $resp2 = wp_remote_post('https://www.googleapis.com/drive/v3/files', [
+    $resp2 = wp_remote_post('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', [
       'timeout' => 15,
       'headers' => [
         'Authorization' => 'Bearer ' . $token,
         'Content-Type'  => 'application/json',
       ],
       'body' => wp_json_encode([
-        'name'     => $safe_name,
-        'mimeType' => 'application/vnd.google-apps.folder',
+        'name'     => $safe_name . ' - Briefing',
+'mimeType' => 'application/vnd.google-apps.folder',
         'parents'  => [self::FOLDER_ID],
       ]),
     ]);
@@ -137,9 +145,6 @@ class TTB_Drive {
 
   /* ─────────────────────────────────────────────
      CREAR DOC CON CONTENIDO
-     Estrategia: subir como texto plano multipart
-     y convertir a Google Doc. Así evitamos los
-     problemas de índices del batchUpdate.
   ───────────────────────────────────────────── */
   private function create_doc_with_content($token, $folder_id, $client_name, $service, $schema, $answers) {
     $service_names = [
@@ -152,7 +157,6 @@ class TTB_Drive {
     $date      = date_i18n('d/m/Y \a \l\a\s H:i');
     $doc_title = 'Briefing ' . $svc_label . ' — ' . $client_name . ' — ' . date_i18n('d/m/Y');
 
-    // Construir contenido HTML — Google Drive lo convierte a Doc limpio
     $html  = '<html><head><meta charset="UTF-8"></head><body>';
     $html .= '<h1>Briefing de ' . esc_html($svc_label) . ' — ' . esc_html($client_name) . '</h1>';
     $html .= '<p><em>Fecha de envío: ' . esc_html($date) . '</em></p>';
@@ -174,14 +178,12 @@ class TTB_Drive {
 
     $html .= '</body></html>';
 
-    // Metadata del fichero
     $metadata = wp_json_encode([
       'name'     => $doc_title,
       'mimeType' => 'application/vnd.google-apps.document',
       'parents'  => [$folder_id],
     ]);
 
-    // Multipart upload: convierte HTML → Google Doc automáticamente
     $boundary = '-------TTBBoundary' . uniqid();
     $body  = "--{$boundary}\r\n";
     $body .= "Content-Type: application/json; charset=UTF-8\r\n\r\n";
@@ -192,13 +194,13 @@ class TTB_Drive {
     $body .= "--{$boundary}--";
 
     $resp = wp_remote_post(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&convert=true',
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true',
       [
         'timeout' => 30,
         'headers' => [
-          'Authorization' => 'Bearer ' . $token,
-          'Content-Type'  => 'multipart/related; boundary="' . $boundary . '"',
-          'Content-Length'=> strlen($body),
+          'Authorization'  => 'Bearer ' . $token,
+          'Content-Type'   => 'multipart/related; boundary="' . $boundary . '"',
+          'Content-Length' => mb_strlen($body, '8bit'),
         ],
         'body' => $body,
       ]
@@ -211,10 +213,51 @@ class TTB_Drive {
 
     $raw  = wp_remote_retrieve_body($resp);
     $code = wp_remote_retrieve_response_code($resp);
-    error_log('TTB_Drive upload response [' . $code . ']: ' . $raw);
+
+    error_log('TTB_Drive upload [' . $code . ']: ' . $raw);
+
+    if ((int)$code !== 200) {
+      return null;
+    }
 
     $data = json_decode($raw, true);
     return $data['id'] ?? null;
+  }
+
+  /* ─────────────────────────────────────────────
+     TRANSFERIR PROPIEDAD AL OWNER REAL
+     Así los docs no consumen cuota del Service Account.
+     Nota: Google solo permite transferir a usuarios del
+     mismo dominio. Si hola@tictac-comunicacion.es y el
+     bot son dominios distintos, el permiso queda como
+     "writer" (editor) en lugar de owner, lo que igual
+     es suficiente para liberar la cuota del bot.
+  ───────────────────────────────────────────── */
+  private function transfer_ownership($token, $doc_id) {
+    $resp = wp_remote_post(
+      'https://www.googleapis.com/drive/v3/files/' . $doc_id . '/permissions?transferOwnership=true&supportsAllDrives=true',
+      [
+        'timeout' => 15,
+        'headers' => [
+          'Authorization' => 'Bearer ' . $token,
+          'Content-Type'  => 'application/json',
+        ],
+        'body' => wp_json_encode([
+          'role'         => 'owner',
+          'type'         => 'user',
+          'emailAddress' => self::OWNER_EMAIL,
+        ]),
+      ]
+    );
+
+    if (is_wp_error($resp)) {
+      error_log('TTB_Drive WARN transfer ownership error: ' . $resp->get_error_message());
+      return;
+    }
+
+    $code = wp_remote_retrieve_response_code($resp);
+    $body = wp_remote_retrieve_body($resp);
+    error_log('TTB_Drive transfer ownership [' . $code . ']: ' . $body);
   }
 
   /* ─────────────────────────────────────────────

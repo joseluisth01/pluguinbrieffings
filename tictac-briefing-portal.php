@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: TicTac Briefing Portal (Standalone)
+ * Plugin Name: TicTacccc Briefing Portal (Standalone)
  * Description: Portal /briefing con login independiente + admin frontend + clientes + formularios por servicio + Google Drive.
  * Version: 1.2.0
  * Author: TicTac Comunicación
