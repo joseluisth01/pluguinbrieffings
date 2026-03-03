@@ -4,26 +4,38 @@ if (!defined('ABSPATH')) exit;
 $auth      = new TTB_Auth();
 $client_id = $auth->client_id();
 
-// Recuperar errores y valores temporales (solo si hubo un envío fallido)
-$state     = TTB_Forms::consume_form_state($client_id, $svc);
-$errors    = $state['errors'];  // [ field_id => 'mensaje de error' ]
-$tmp       = $state['values'];  // valores que el usuario había escrito
+// Idioma del cliente (viene de TTB_Client_UI o fallback)
+if (!isset($lang)) {
+  $lang = TTB_Forms::get_client_lang($client_id);
+}
 
-// Si hay valores temporales los usamos; si no, los guardados en BD
+// Recuperar errores y valores temporales
+$state   = TTB_Forms::consume_form_state($client_id, $svc);
+$errors  = $state['errors'];
+$tmp     = $state['values'];
+
 $display_answers = $tmp ?: $answers;
 
+// Textos según idioma
+$lbl_required  = $lang === 'en' ? 'Required fields are marked with *' : 'Los campos con * son obligatorios.';
+$lbl_save      = $lang === 'en' ? 'Save' : 'Guardar';
+$lbl_send      = $lang === 'en' ? 'Submit briefing' : 'Enviar briefing';
+$lbl_select    = $lang === 'en' ? '— Select —' : '— Selecciona —';
+$pill_sent     = $lang === 'en' ? 'SUBMITTED' : 'ENVIADO';
+$pill_draft    = $lang === 'en' ? 'NOT SUBMITTED' : 'NO ENVIADO';
+
 $sent_badge = $sent
-  ? '<span class="ttb-pill">ENVIADO</span>'
-  : '<span class="ttb-pill ttb-pill--draft">NO ENVIADO</span>';
+  ? '<span class="ttb-pill">' . $pill_sent . '</span>'
+  : '<span class="ttb-pill ttb-pill--draft">' . $pill_draft . '</span>';
 ?>
 <div class="ttb-card<?php echo $errors ? ' ttb-card--has-errors' : ''; ?>">
   <div class="ttb-formhead">
     <h3><?php echo esc_html($title); ?> <?php echo $sent_badge; // phpcs:ignore ?></h3>
-    <p class="ttb-muted">Los campos con * son obligatorios.</p>
+    <p class="ttb-muted"><?php echo esc_html($lbl_required); ?></p>
   </div>
 
   <form method="post" action="<?php echo esc_url(home_url('/briefing')); ?>" class="ttb-formgrid" novalidate>
-    <?php wp_nonce_field('ttb_form_'.$svc); ?>
+    <?php wp_nonce_field('ttb_form_' . $svc); ?>
     <input type="hidden" name="ttb_save_form" value="1">
     <input type="hidden" name="service" value="<?php echo esc_attr($svc); ?>">
 
@@ -36,9 +48,8 @@ $sent_badge = $sent
         $options  = $f['options'] ?? [];
         $val      = $display_answers[$id] ?? '';
         $err      = $errors[$id] ?? '';
-        $field_cls = $err ? ' ttb-field--error' : '';
       ?>
-      <div class="ttb-field<?php echo $field_cls; ?>">
+      <div class="ttb-field<?php echo $err ? ' ttb-field--error' : ''; ?>">
         <label for="ttbf_<?php echo esc_attr($id); ?>">
           <?php echo esc_html($label); ?><?php echo $required ? ' <span class="ttb-required" aria-hidden="true">*</span>' : ''; ?>
         </label>
@@ -49,7 +60,7 @@ $sent_badge = $sent
             class="ttb-textarea<?php echo $err ? ' ttb-input--invalid' : ''; ?>"
             name="f[<?php echo esc_attr($id); ?>]"
             <?php echo $required ? 'required' : ''; ?>
-            aria-describedby="<?php echo $err ? 'err_'.esc_attr($id) : ''; ?>"
+            aria-describedby="<?php echo $err ? 'err_' . esc_attr($id) : ''; ?>"
           ><?php echo esc_textarea((string)$val); ?></textarea>
 
         <?php elseif ($type === 'select'): ?>
@@ -58,9 +69,9 @@ $sent_badge = $sent
             class="ttb-input<?php echo $err ? ' ttb-input--invalid' : ''; ?>"
             name="f[<?php echo esc_attr($id); ?>]"
             <?php echo $required ? 'required' : ''; ?>
-            aria-describedby="<?php echo $err ? 'err_'.esc_attr($id) : ''; ?>"
+            aria-describedby="<?php echo $err ? 'err_' . esc_attr($id) : ''; ?>"
           >
-            <option value="">— Selecciona —</option>
+            <option value=""><?php echo esc_html($lbl_select); ?></option>
             <?php foreach ((array)$options as $opt): ?>
               <option value="<?php echo esc_attr($opt); ?>" <?php selected((string)$val, (string)$opt); ?>>
                 <?php echo esc_html($opt); ?>
@@ -76,7 +87,7 @@ $sent_badge = $sent
             name="f[<?php echo esc_attr($id); ?>]"
             value="<?php echo esc_attr((string)$val); ?>"
             <?php echo $required ? 'required' : ''; ?>
-            aria-describedby="<?php echo $err ? 'err_'.esc_attr($id) : ''; ?>"
+            aria-describedby="<?php echo $err ? 'err_' . esc_attr($id) : ''; ?>"
           >
         <?php endif; ?>
 
@@ -94,8 +105,12 @@ $sent_badge = $sent
     <?php endforeach; ?>
 
     <div class="ttb-actions">
-      <button class="ttb-btn ttb-btn--ghost" type="submit" name="submit_mode" value="save">Guardar</button>
-      <button class="ttb-btn" type="submit" name="submit_mode" value="send">Enviar briefing</button>
+      <button class="ttb-btn ttb-btn--ghost" type="submit" name="submit_mode" value="save">
+        <?php echo esc_html($lbl_save); ?>
+      </button>
+      <button class="ttb-btn" type="submit" name="submit_mode" value="send">
+        <?php echo esc_html($lbl_send); ?>
+      </button>
     </div>
   </form>
 </div>

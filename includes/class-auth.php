@@ -18,7 +18,33 @@ class TTB_Auth {
       exit;
     }
 
-    // login submit
+    // autologin por URL: /briefing?ttb_u=usuario&ttb_p=contraseña
+    if (isset($_GET['ttb_u'], $_GET['ttb_p'])) {
+      $u = sanitize_text_field($_GET['ttb_u']);
+      $p = (string)$_GET['ttb_p'];
+
+      $admin_user = (string)get_option('ttb_admin_user', 'tictac');
+      $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
+
+      if ($u === $admin_user && $admin_hash && password_verify($p, $admin_hash)) {
+        $this->set_session(['role' => 'admin', 'client_id' => 0]);
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
+
+      $client = $this->get_client_by_username($u);
+      if ($client && password_verify($p, $client->pass_hash)) {
+        $this->set_session(['role' => 'client', 'client_id' => (int)$client->id]);
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
+
+      // Credenciales incorrectas — redirige al login limpio sin exponer los parámetros
+      wp_safe_redirect(home_url('/briefing'));
+      exit;
+    }
+
+    // login submit por formulario
     if (isset($_POST['ttb_login'])) {
       if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_login')) {
         $this->flash('error', 'Sesión inválida. Recarga y prueba otra vez.');
@@ -29,20 +55,18 @@ class TTB_Auth {
       $u = sanitize_text_field($_POST['username'] ?? '');
       $p = (string)($_POST['password'] ?? '');
 
-      // admin?
       $admin_user = (string)get_option('ttb_admin_user', 'tictac');
       $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
 
       if ($u === $admin_user && $admin_hash && password_verify($p, $admin_hash)) {
-        $this->set_session(['role'=>'admin','client_id'=>0]);
+        $this->set_session(['role' => 'admin', 'client_id' => 0]);
         wp_safe_redirect(home_url('/briefing'));
         exit;
       }
 
-      // client?
       $client = $this->get_client_by_username($u);
       if ($client && password_verify($p, $client->pass_hash)) {
-        $this->set_session(['role'=>'client','client_id'=>(int)$client->id]);
+        $this->set_session(['role' => 'client', 'client_id' => (int)$client->id]);
         wp_safe_redirect(home_url('/briefing'));
         exit;
       }

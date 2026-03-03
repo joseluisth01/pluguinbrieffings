@@ -25,14 +25,16 @@ class TTB_Admin_UI {
     echo '</div>';
 
     echo '<div class="ttb-tabs">';
-    self::tab_link('forms',   'Formularios', $tab);
-    self::tab_link('clients', 'Clientes',    $tab);
-    self::tab_link('answers', 'Respuestas',  $tab);
+    self::tab_link('forms',    'Formularios ES', $tab);
+    self::tab_link('forms_en', 'Formularios EN', $tab);
+    self::tab_link('clients',  'Clientes',       $tab);
+    self::tab_link('answers',  'Respuestas',     $tab);
     echo '</div>';
 
-    if ($tab === 'clients')      self::render_clients();
-    elseif ($tab === 'answers')  self::render_answers();
-    else                         self::render_forms();
+    if ($tab === 'clients')       self::render_clients();
+    elseif ($tab === 'answers')   self::render_answers();
+    elseif ($tab === 'forms_en')  self::render_forms('en');
+    else                          self::render_forms('es');
 
     echo '</div>';
   }
@@ -41,7 +43,7 @@ class TTB_Admin_UI {
   private static function tab_link($key, $label, $active) {
     $url = esc_url(add_query_arg(['tab' => $key], home_url('/briefing')));
     $cls = ($key === $active) ? 'ttb-tab ttb-tab--active' : 'ttb-tab';
-    echo '<a class="'.$cls.'" href="'.$url.'">'.esc_html($label).'</a>';
+    echo '<a class="' . $cls . '" href="' . $url . '">' . esc_html($label) . '</a>';
   }
 
   /* ── Guardar formularios JSON ── */
@@ -49,13 +51,17 @@ class TTB_Admin_UI {
     if (!isset($_POST['ttb_admin_save_forms'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_forms')) return;
 
-    update_option('ttb_form_design', wp_unslash($_POST['ttb_form_design'] ?? ''));
-    update_option('ttb_form_social', wp_unslash($_POST['ttb_form_social'] ?? ''));
-    update_option('ttb_form_seo',    wp_unslash($_POST['ttb_form_seo']    ?? ''));
-    update_option('ttb_form_web',    wp_unslash($_POST['ttb_form_web']    ?? ''));
+    $lang = sanitize_text_field($_POST['ttb_form_lang'] ?? 'es');
+    $sfx  = ($lang === 'en') ? '_en' : '';
 
+    update_option('ttb_form_design' . $sfx, wp_unslash($_POST['ttb_form_design'] ?? ''));
+    update_option('ttb_form_social' . $sfx, wp_unslash($_POST['ttb_form_social'] ?? ''));
+    update_option('ttb_form_seo'    . $sfx, wp_unslash($_POST['ttb_form_seo']    ?? ''));
+    update_option('ttb_form_web'    . $sfx, wp_unslash($_POST['ttb_form_web']    ?? ''));
+
+    $tab = ($lang === 'en') ? 'forms_en' : 'forms';
     (new TTB_Auth())->flash('success', 'Formularios guardados.');
-    wp_safe_redirect(add_query_arg(['tab' => 'forms'], home_url('/briefing')));
+    wp_safe_redirect(add_query_arg(['tab' => $tab], home_url('/briefing')));
     exit;
   }
 
@@ -66,6 +72,7 @@ class TTB_Admin_UI {
 
     $name     = sanitize_text_field($_POST['client_name']  ?? '');
     $email    = sanitize_email($_POST['client_email']       ?? '');
+    $lang     = in_array($_POST['client_lang'] ?? '', ['es', 'en'], true) ? $_POST['client_lang'] : 'es';
     $services = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
 
     if (!$name || !$email) {
@@ -85,17 +92,18 @@ class TTB_Admin_UI {
     if ($exists) $username .= '-' . wp_generate_password(4, false, false);
 
     $wpdb->insert($table, [
-      'name'      => $name,
-      'email'     => $email,
-      'username'  => $username,
-      'pass_hash' => password_hash($password, PASSWORD_DEFAULT),
-      'services'  => wp_json_encode(array_values($services)),
-      'status'    => 'pendiente',
-      'created_at'=> TTB_DB::now(),
-      'updated_at'=> TTB_DB::now(),
+      'name'       => $name,
+      'email'      => $email,
+      'username'   => $username,
+      'pass_hash'  => password_hash($password, PASSWORD_DEFAULT),
+      'services'   => wp_json_encode(array_values($services)),
+      'lang'       => $lang,
+      'status'     => 'pendiente',
+      'created_at' => TTB_DB::now(),
+      'updated_at' => TTB_DB::now(),
     ]);
 
-    (new TTB_Mailer())->send_client_access($name, $email, $username, $password, $services);
+    (new TTB_Mailer())->send_client_access($name, $email, $username, $password, $services, $lang);
 
     (new TTB_Auth())->flash('success', 'Cliente creado y email enviado.');
     wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
@@ -112,6 +120,7 @@ class TTB_Admin_UI {
 
     $name     = sanitize_text_field($_POST['client_name']  ?? '');
     $email    = sanitize_email($_POST['client_email']       ?? '');
+    $lang     = in_array($_POST['client_lang'] ?? '', ['es', 'en'], true) ? $_POST['client_lang'] : 'es';
     $services = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
 
     if (!$name || !$email) {
@@ -127,6 +136,7 @@ class TTB_Admin_UI {
       'name'       => $name,
       'email'      => $email,
       'services'   => wp_json_encode(array_values($services)),
+      'lang'       => $lang,
       'updated_at' => TTB_DB::now(),
     ], ['id' => $client_id]);
 
@@ -168,8 +178,9 @@ class TTB_Admin_UI {
     $services = json_decode((string)$c->services, true);
     if (!is_array($services)) $services = [];
     $password = (string)$c->name;
+    $lang     = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
 
-    (new TTB_Mailer())->send_client_access((string)$c->name, (string)$c->email, (string)$c->username, $password, $services);
+    (new TTB_Mailer())->send_client_access((string)$c->name, (string)$c->email, (string)$c->username, $password, $services, $lang);
 
     (new TTB_Auth())->flash('success', 'Email reenviado.');
     wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
@@ -177,23 +188,29 @@ class TTB_Admin_UI {
   }
 
   /* ════════════════════════════════
-     RENDER: FORMULARIOS
+     RENDER: FORMULARIOS (ES / EN)
   ════════════════════════════════ */
-  private static function render_forms() {
-    $design = (string)get_option('ttb_form_design', '');
-    $social = (string)get_option('ttb_form_social', '');
-    $seo    = (string)get_option('ttb_form_seo',    '');
-    $web    = (string)get_option('ttb_form_web',    '');
+  private static function render_forms($lang = 'es') {
+    $sfx = ($lang === 'en') ? '_en' : '';
 
-    echo '<div class="ttb-card"><h3>Formularios (JSON)</h3><p class="ttb-muted">Edita campos por servicio. Formato: lista de objetos con id/label/type/required/options.</p></div>';
+    $design = (string)get_option('ttb_form_design' . $sfx, '');
+    $social = (string)get_option('ttb_form_social' . $sfx, '');
+    $seo    = (string)get_option('ttb_form_seo'    . $sfx, '');
+    $web    = (string)get_option('ttb_form_web'    . $sfx, '');
+
+    $lang_label = $lang === 'en' ? 'English' : 'Español';
+
+    echo '<div class="ttb-card"><h3>Formularios — ' . esc_html($lang_label) . ' (JSON)</h3>';
+    echo '<p class="ttb-muted">Edita campos por servicio. Formato: lista de objetos con id/label/type/required/options.</p></div>';
 
     echo '<form method="post" class="ttb-card">';
     wp_nonce_field('ttb_admin_forms');
+    echo '<input type="hidden" name="ttb_form_lang" value="' . esc_attr($lang) . '">';
     echo '<div class="ttb-grid2">';
-    self::json_box('Diseño', 'ttb_form_design', $design);
-    self::json_box('Redes',  'ttb_form_social', $social);
-    self::json_box('SEO',    'ttb_form_seo',    $seo);
-    self::json_box('Web',    'ttb_form_web',    $web);
+    self::json_box('Design',  'ttb_form_design', $design);
+    self::json_box('Social',  'ttb_form_social', $social);
+    self::json_box('SEO',     'ttb_form_seo',    $seo);
+    self::json_box('Web',     'ttb_form_web',    $web);
     echo '</div>';
     echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_admin_save_forms" value="1">Guardar formularios</button></div>';
     echo '</form>';
@@ -201,8 +218,8 @@ class TTB_Admin_UI {
 
   private static function json_box($title, $name, $val) {
     echo '<div class="ttb-jsonbox">';
-    echo '<h4>'.esc_html($title).'</h4>';
-    echo '<textarea name="'.esc_attr($name).'" class="ttb-textarea">'.esc_textarea($val).'</textarea>';
+    echo '<h4>' . esc_html($title) . '</h4>';
+    echo '<textarea name="' . esc_attr($name) . '" class="ttb-textarea">' . esc_textarea($val) . '</textarea>';
     echo '</div>';
   }
 
@@ -214,7 +231,6 @@ class TTB_Admin_UI {
     $table   = TTB_DB::clients_table();
     $clients = $wpdb->get_results("SELECT * FROM $table ORDER BY created_at DESC LIMIT 200");
 
-    // ¿Hay un cliente en modo edición?
     $edit_id = (int)($_GET['edit_client'] ?? 0);
     $edit_c  = null;
     if ($edit_id) {
@@ -229,18 +245,27 @@ class TTB_Admin_UI {
     echo '<div><label>Nombre</label><input class="ttb-input" type="text" name="client_name" required></div>';
     echo '<div><label>Email</label><input class="ttb-input" type="email" name="client_email" required></div>';
     echo '</div>';
+
+    // Idioma
+    echo '<div style="margin-top:10px"><label>Idioma del portal</label>';
+    echo '<div class="ttb-checks" style="margin-top:6px">';
+    echo '<label class="ttb-check"><input type="radio" name="client_lang" value="es" checked> 🇪🇸 Español</label>';
+    echo '<label class="ttb-check"><input type="radio" name="client_lang" value="en"> 🇬🇧 English</label>';
+    echo '</div></div>';
+
     echo '<div style="margin-top:10px"><label>Servicios</label><div class="ttb-checks">';
-    foreach (['design' => 'Diseño', 'social' => 'Redes', 'seo' => 'SEO', 'web' => 'Web'] as $k => $v) {
-      echo '<label class="ttb-check"><input type="checkbox" name="services[]" value="'.esc_attr($k).'"> '.esc_html($v).'</label>';
+    foreach (['design' => 'Diseño / Design', 'social' => 'Redes / Social', 'seo' => 'SEO', 'web' => 'Web'] as $k => $v) {
+      echo '<label class="ttb-check"><input type="checkbox" name="services[]" value="' . esc_attr($k) . '"> ' . esc_html($v) . '</label>';
     }
     echo '</div></div>';
     echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_admin_create_client" value="1">Crear y enviar acceso</button></div>';
     echo '</form>';
 
-    /* ── Modal de edición (si procede) ── */
+    /* ── Modal de edición ── */
     if ($edit_c) {
       $edit_services = json_decode((string)$edit_c->services, true);
       if (!is_array($edit_services)) $edit_services = [];
+      $edit_lang  = in_array($edit_c->lang ?? '', ['es', 'en'], true) ? $edit_c->lang : 'es';
       $cancel_url = esc_url(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
 
       echo '<div class="ttb-modal-overlay ttb-edit-modal-overlay" id="ttbEditModal" role="dialog" aria-modal="true" aria-labelledby="ttbEditTitle">';
@@ -249,28 +274,33 @@ class TTB_Admin_UI {
 
       echo '<form method="post" class="ttb-formgrid">';
       wp_nonce_field('ttb_admin_edit_client');
-      echo '<input type="hidden" name="client_id" value="'.(int)$edit_c->id.'">';
+      echo '<input type="hidden" name="client_id" value="' . (int)$edit_c->id . '">';
 
       echo '<div class="ttb-grid2">';
-      echo '<div><label>Nombre</label><input class="ttb-input" type="text" name="client_name" value="'.esc_attr($edit_c->name).'" required></div>';
-      echo '<div><label>Email</label><input class="ttb-input" type="email" name="client_email" value="'.esc_attr($edit_c->email).'" required></div>';
+      echo '<div><label>Nombre</label><input class="ttb-input" type="text" name="client_name" value="' . esc_attr($edit_c->name) . '" required></div>';
+      echo '<div><label>Email</label><input class="ttb-input" type="email" name="client_email" value="' . esc_attr($edit_c->email) . '" required></div>';
       echo '</div>';
 
+      // Idioma
+      echo '<div style="margin-top:10px"><label>Idioma del portal</label>';
+      echo '<div class="ttb-checks" style="margin-top:6px">';
+      echo '<label class="ttb-check"><input type="radio" name="client_lang" value="es"' . ($edit_lang === 'es' ? ' checked' : '') . '> 🇪🇸 Español</label>';
+      echo '<label class="ttb-check"><input type="radio" name="client_lang" value="en"' . ($edit_lang === 'en' ? ' checked' : '') . '> 🇬🇧 English</label>';
+      echo '</div></div>';
+
       echo '<div style="margin-top:10px"><label>Servicios</label><div class="ttb-checks">';
-      foreach (['design' => 'Diseño', 'social' => 'Redes', 'seo' => 'SEO', 'web' => 'Web'] as $k => $v) {
+      foreach (['design' => 'Diseño / Design', 'social' => 'Redes / Social', 'seo' => 'SEO', 'web' => 'Web'] as $k => $v) {
         $checked = in_array($k, $edit_services, true) ? 'checked' : '';
-        echo '<label class="ttb-check"><input type="checkbox" name="services[]" value="'.esc_attr($k).'" '.$checked.'> '.esc_html($v).'</label>';
+        echo '<label class="ttb-check"><input type="checkbox" name="services[]" value="' . esc_attr($k) . '" ' . $checked . '> ' . esc_html($v) . '</label>';
       }
       echo '</div></div>';
 
       echo '<div class="ttb-actions" style="margin-top:16px">';
-      echo '<a href="'.$cancel_url.'" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
+      echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
       echo '<button class="ttb-btn" name="ttb_admin_edit_client" value="1">Guardar cambios</button>';
       echo '</div>';
 
       echo '</form></div></div>';
-
-      // Abrir modal automáticamente
       echo '<script>document.getElementById("ttbEditModal").style.display="flex";</script>';
     }
 
@@ -279,50 +309,49 @@ class TTB_Admin_UI {
     if (!$clients) { echo '<p class="ttb-muted">No hay clientes aún.</p></div>'; return; }
 
     echo '<div class="ttb-tablewrap"><table class="ttb-table"><thead><tr>
-      <th>Cliente</th><th>Email</th><th>Usuario</th><th>Servicios</th><th>Estado</th><th></th>
+      <th>Cliente</th><th>Email</th><th>Usuario</th><th>Idioma</th><th>Servicios</th><th>Estado</th><th></th>
     </tr></thead><tbody>';
 
     foreach ($clients as $c) {
       $sv = json_decode((string)$c->services, true);
       if (!is_array($sv)) $sv = [];
-
-      $edit_url = esc_url(add_query_arg(['tab' => 'clients', 'edit_client' => (int)$c->id], home_url('/briefing')));
+      $c_lang    = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
+      $edit_url  = esc_url(add_query_arg(['tab' => 'clients', 'edit_client' => (int)$c->id], home_url('/briefing')));
 
       echo '<tr>';
-      echo '<td><strong>'.esc_html($c->name).'</strong></td>';
-      echo '<td>'.esc_html($c->email).'</td>';
-      echo '<td>'.esc_html($c->username).'</td>';
-      echo '<td>'.esc_html($sv ? implode(', ', $sv) : '—').'</td>';
+      echo '<td><strong>' . esc_html($c->name) . '</strong></td>';
+      echo '<td>' . esc_html($c->email) . '</td>';
+      echo '<td>' . esc_html($c->username) . '</td>';
+      echo '<td>' . ($c_lang === 'en' ? '🇬🇧 EN' : '🇪🇸 ES') . '</td>';
+      echo '<td>' . esc_html($sv ? implode(', ', $sv) : '—') . '</td>';
       echo '<td>';
-      $status_labels = ['pendiente'=>'Pendiente','en_progreso'=>'En progreso','enviado'=>'Enviado'];
-      $status_cls    = ['pendiente'=>'ttb-status--pending','en_progreso'=>'ttb-status--progress','enviado'=>'ttb-status--sent'];
-      $sl  = $status_labels[$c->status] ?? esc_html($c->status);
-      $sc  = $status_cls[$c->status]    ?? '';
-      echo '<span class="ttb-status '.$sc.'">'.esc_html($sl).'</span>';
+      $status_labels = ['pendiente' => 'Pendiente', 'en_progreso' => 'En progreso', 'enviado' => 'Enviado'];
+      $status_cls    = ['pendiente' => 'ttb-status--pending', 'en_progreso' => 'ttb-status--progress', 'enviado' => 'ttb-status--sent'];
+      $sl = $status_labels[$c->status] ?? esc_html($c->status);
+      $sc = $status_cls[$c->status]    ?? '';
+      echo '<span class="ttb-status ' . $sc . '">' . esc_html($sl) . '</span>';
       echo '</td>';
-      echo '<td>
-        <div class="ttb-row-actions">';
+      echo '<td><div class="ttb-row-actions">';
 
-          /* Editar */
-          echo '<a href="'.$edit_url.'" class="ttb-btn ttb-btn--ghost ttb-btn--sm" title="Editar">✏️ Editar</a>';
+      // Editar
+      echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm" title="Editar">✏️ Editar</a>';
 
-          /* Reenviar email */
-          echo '<form method="post" style="margin:0">';
-          wp_nonce_field('ttb_admin_resend');
-          echo '<input type="hidden" name="client_id" value="'.(int)$c->id.'">
-          <button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_admin_resend" value="1" title="Reenviar email">📧 Email</button>
-          </form>';
+      // Reenviar email
+      echo '<form method="post" style="margin:0">';
+      wp_nonce_field('ttb_admin_resend');
+      echo '<input type="hidden" name="client_id" value="' . (int)$c->id . '">
+      <button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_admin_resend" value="1" title="Reenviar email">📧 Email</button>
+      </form>';
 
-          /* Eliminar — con confirmación JS */
-          echo '<form method="post" style="margin:0"
-                      onsubmit="return confirm(\'¿Eliminar a '.esc_js($c->name).'? Se borrarán también todas sus respuestas. Esta acción no se puede deshacer.\')">';
-          wp_nonce_field('ttb_admin_delete_client');
-          echo '<input type="hidden" name="client_id" value="'.(int)$c->id.'">
-          <button class="ttb-btn ttb-btn--danger ttb-btn--sm" name="ttb_admin_delete_client" value="1" title="Eliminar">🗑️ Eliminar</button>
-          </form>';
+      // Eliminar
+      echo '<form method="post" style="margin:0"
+                  onsubmit="return confirm(\'¿Eliminar a ' . esc_js($c->name) . '? Se borrarán también todas sus respuestas. Esta acción no se puede deshacer.\')">';
+      wp_nonce_field('ttb_admin_delete_client');
+      echo '<input type="hidden" name="client_id" value="' . (int)$c->id . '">
+      <button class="ttb-btn ttb-btn--danger ttb-btn--sm" name="ttb_admin_delete_client" value="1" title="Eliminar">🗑️ Eliminar</button>
+      </form>';
 
-      echo '</div></td>';
-      echo '</tr>';
+      echo '</div></td></tr>';
     }
 
     echo '</tbody></table></div></div>';
@@ -334,21 +363,23 @@ class TTB_Admin_UI {
   private static function render_answers() {
     global $wpdb;
     $clients_table = TTB_DB::clients_table();
-    $clients = $wpdb->get_results("SELECT id,name,email,status FROM $clients_table ORDER BY updated_at DESC LIMIT 200");
+    $clients = $wpdb->get_results("SELECT id,name,email,lang,status FROM $clients_table ORDER BY updated_at DESC LIMIT 200");
 
     echo '<div class="ttb-card"><h3>Respuestas</h3><p class="ttb-muted">Selecciona un cliente para ver sus respuestas por servicio.</p></div>';
 
     echo '<div class="ttb-card"><div class="ttb-tablewrap"><table class="ttb-table"><thead><tr>
-      <th>Cliente</th><th>Email</th><th>Estado</th><th>Ver</th>
+      <th>Cliente</th><th>Email</th><th>Idioma</th><th>Estado</th><th>Ver</th>
     </tr></thead><tbody>';
 
     foreach ($clients as $c) {
-      $url = esc_url(add_query_arg(['tab' => 'answers', 'client' => (int)$c->id], home_url('/briefing')));
+      $url    = esc_url(add_query_arg(['tab' => 'answers', 'client' => (int)$c->id], home_url('/briefing')));
+      $c_lang = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
       echo '<tr>';
-      echo '<td><strong>'.esc_html($c->name).'</strong></td>';
-      echo '<td>'.esc_html($c->email).'</td>';
-      echo '<td>'.esc_html($c->status).'</td>';
-      echo '<td><a class="ttb-btn ttb-btn--ghost ttb-btn--sm" href="'.$url.'">Ver</a></td>';
+      echo '<td><strong>' . esc_html($c->name) . '</strong></td>';
+      echo '<td>' . esc_html($c->email) . '</td>';
+      echo '<td>' . ($c_lang === 'en' ? '🇬🇧 EN' : '🇪🇸 ES') . '</td>';
+      echo '<td>' . esc_html($c->status) . '</td>';
+      echo '<td><a class="ttb-btn ttb-btn--ghost ttb-btn--sm" href="' . $url . '">Ver</a></td>';
       echo '</tr>';
     }
 
@@ -362,31 +393,33 @@ class TTB_Admin_UI {
 
     $services = json_decode((string)$client->services, true);
     if (!is_array($services)) $services = [];
+    $c_lang = in_array($client->lang ?? '', ['es', 'en'], true) ? $client->lang : 'es';
 
-    echo '<div class="ttb-card"><h3>Detalle: '.esc_html($client->name).'</h3></div>';
+    echo '<div class="ttb-card"><h3>Detalle: ' . esc_html($client->name) . ' ' . ($c_lang === 'en' ? '🇬🇧' : '🇪🇸') . '</h3></div>';
 
     foreach ($services as $svc) {
-      $schema  = TTB_Forms::get_schema($svc);
+      $schema  = TTB_Forms::get_schema($svc, $c_lang);
       $payload = TTB_Forms::get_client_answers($client_id, $svc);
       $answers = $payload['answers'];
       $sent    = (int)$payload['sent'];
 
       echo '<div class="ttb-card">';
-      echo '<h4>'.esc_html(strtoupper($svc)).' '.($sent ? '<span class="ttb-pill">ENVIADO</span>' : '<span class="ttb-pill ttb-pill--draft">BORRADOR</span>').'</h4>';
+      echo '<h4>' . esc_html(strtoupper($svc)) . ' ' . ($sent ? '<span class="ttb-pill">ENVIADO</span>' : '<span class="ttb-pill ttb-pill--draft">BORRADOR</span>') . '</h4>';
 
       if (!$answers) { echo '<p class="ttb-muted">Sin respuestas todavía.</p></div>'; continue; }
 
       $drive_url = $answers['ttb_drive_url'] ?? '';
       if ($drive_url) {
-        echo '<a href="'.esc_url($drive_url).'" target="_blank" rel="noopener" class="ttb-btn ttb-btn--ghost ttb-btn--sm" style="margin-bottom:12px;display:inline-flex;align-items:center;gap:6px">📄 Ver en Google Drive</a>';
+        echo '<a href="' . esc_url($drive_url) . '" target="_blank" rel="noopener" class="ttb-btn ttb-btn--ghost ttb-btn--sm" style="margin-bottom:12px;display:inline-flex;align-items:center;gap:6px">📄 Ver en Google Drive</a>';
       }
       echo '<div class="ttb-qa">';
       foreach ($schema as $f) {
-        $id    = $f['id'] ?? ''; if (!$id) continue;
+        $id    = $f['id'] ?? '';
+        if (!$id) continue;
         $label = $f['label'] ?? $id;
         $val   = $answers[$id] ?? '';
         if (is_array($val)) $val = implode(', ', $val);
-        echo '<div class="ttb-q"><div class="ttb-q__l">'.esc_html($label).'</div><div class="ttb-q__a">'.nl2br(esc_html((string)$val)).'</div></div>';
+        echo '<div class="ttb-q"><div class="ttb-q__l">' . esc_html($label) . '</div><div class="ttb-q__a">' . nl2br(esc_html((string)$val)) . '</div></div>';
       }
       echo '</div></div>';
     }

@@ -26,6 +26,7 @@ class TTB_Activator {
       username VARCHAR(190) NOT NULL,
       pass_hash VARCHAR(255) NOT NULL,
       services LONGTEXT NULL,
+      lang VARCHAR(5) NOT NULL DEFAULT 'es',
       status VARCHAR(40) NOT NULL DEFAULT 'pendiente',
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
@@ -48,10 +49,15 @@ class TTB_Activator {
 
     dbDelta($sql1);
     dbDelta($sql2);
+
+    // Migración: añadir columna lang si ya existe la tabla sin ella
+    $col = $wpdb->get_results("SHOW COLUMNS FROM $clients LIKE 'lang'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE $clients ADD COLUMN lang VARCHAR(5) NOT NULL DEFAULT 'es' AFTER services");
+    }
   }
 
   private static function seed_admin_credentials() {
-    // Guarda hash del admin en options (no depende de wp_users)
     if (!get_option('ttb_admin_user')) {
       update_option('ttb_admin_user', 'tictac');
     }
@@ -62,91 +68,179 @@ class TTB_Activator {
   }
 
   private static function seed_forms() {
-    if (!get_option('ttb_form_design')) update_option('ttb_form_design', wp_json_encode(self::default_form_design(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
-    if (!get_option('ttb_form_social')) update_option('ttb_form_social', wp_json_encode(self::default_form_social(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
-    if (!get_option('ttb_form_seo'))    update_option('ttb_form_seo',    wp_json_encode(self::default_form_seo(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
-    if (!get_option('ttb_form_web'))    update_option('ttb_form_web',    wp_json_encode(self::default_form_web(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    // ES
+    if (!get_option('ttb_form_design')) update_option('ttb_form_design', wp_json_encode(self::default_form_design(),    JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    if (!get_option('ttb_form_social')) update_option('ttb_form_social', wp_json_encode(self::default_form_social(),    JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    if (!get_option('ttb_form_seo'))    update_option('ttb_form_seo',    wp_json_encode(self::default_form_seo(),       JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    if (!get_option('ttb_form_web'))    update_option('ttb_form_web',    wp_json_encode(self::default_form_web(),       JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    // EN
+    if (!get_option('ttb_form_design_en')) update_option('ttb_form_design_en', wp_json_encode(self::default_form_design_en(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    if (!get_option('ttb_form_social_en')) update_option('ttb_form_social_en', wp_json_encode(self::default_form_social_en(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    if (!get_option('ttb_form_seo_en'))    update_option('ttb_form_seo_en',    wp_json_encode(self::default_form_seo_en(),    JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+    if (!get_option('ttb_form_web_en'))    update_option('ttb_form_web_en',    wp_json_encode(self::default_form_web_en(),    JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
   }
 
-  private static function f($id,$label,$type='text',$required=false,$options=[]) {
-    $field = ['id'=>$id,'label'=>$label,'type'=>$type,'required'=>(bool)$required];
+  private static function f($id, $label, $type = 'text', $required = false, $options = []) {
+    $field = ['id' => $id, 'label' => $label, 'type' => $type, 'required' => (bool)$required];
     if (!empty($options)) $field['options'] = array_values($options);
     return $field;
   }
 
+  /* ═══════════════════════════════
+     FORMULARIOS ESPAÑOL
+  ═══════════════════════════════ */
   private static function default_form_design() {
     return [
-      self::f('brand_name','Nombre de la marca/empresa','text',true),
-      self::f('contact_person','Persona de contacto','text',true),
-      self::f('email','Email','email',true),
-      self::f('phone','Teléfono/WhatsApp','text',false),
-      self::f('brand_desc','Describe tu marca (1–2 párrafos)','textarea',true),
-      self::f('target','Cliente ideal (quién es y qué busca)','textarea',true),
-      self::f('tone','Tono de comunicación','textarea',false),
-      self::f('colors','Colores corporativos (hex si los tienes)','text',false),
-      self::f('references','Referencias visuales (URLs)','textarea',false),
-      self::f('deliverables','Qué necesitas exactamente','textarea',true),
-      self::f('deadline','Fecha límite / urgencia','text',false),
-      self::f('notes','Notas adicionales','textarea',false),
+      self::f('brand_name',    'Nombre de la marca/empresa',          'text',     true),
+      self::f('contact_person','Persona de contacto',                 'text',     true),
+      self::f('email',         'Email',                               'email',    true),
+      self::f('phone',         'Teléfono/WhatsApp',                   'text',     false),
+      self::f('brand_desc',    'Describe tu marca (1–2 párrafos)',    'textarea', true),
+      self::f('target',        'Cliente ideal (quién es y qué busca)','textarea', true),
+      self::f('tone',          'Tono de comunicación',                'textarea', false),
+      self::f('colors',        'Colores corporativos (hex si los tienes)','text', false),
+      self::f('references',    'Referencias visuales (URLs)',          'textarea', false),
+      self::f('deliverables',  'Qué necesitas exactamente',           'textarea', true),
+      self::f('deadline',      'Fecha límite / urgencia',             'text',     false),
+      self::f('notes',         'Notas adicionales',                   'textarea', false),
     ];
   }
 
   private static function default_form_social() {
     return [
-      self::f('brand_name','Nombre de la marca/empresa','text',true),
-      self::f('ig_handle','Instagram @usuario','text',false),
-      self::f('channels','Otros canales (TikTok, LinkedIn...)','text',false),
-      self::f('objectives','Objetivos','textarea',true),
-      self::f('offer','Servicios / productos a destacar','textarea',true),
-      self::f('audience','Público objetivo','textarea',true),
-      self::f('diff','Qué te diferencia (3 puntos)','textarea',true),
-      self::f('tone','Tono deseado','textarea',false),
-      self::f('content_types','Tipo de contenido preferido','select',false,['Reels','Carruseles','Imagen única','Stories','Mixto']),
-      self::f('freq','Frecuencia ideal (posts/semana)','text',false),
-      self::f('resources','Recursos disponibles (foto/vídeo)','textarea',false),
-      self::f('dont','Qué NO se puede decir/mostrar','textarea',false),
-      self::f('competitors','Competidores/referencias (URLs o @)','textarea',false),
-      self::f('cta','CTA principal','text',false),
-      self::f('notes','Notas adicionales','textarea',false),
+      self::f('brand_name',     'Nombre de la marca/empresa',             'text',     true),
+      self::f('ig_handle',      'Instagram @usuario',                     'text',     false),
+      self::f('channels',       'Otros canales (TikTok, LinkedIn...)',     'text',     false),
+      self::f('objectives',     'Objetivos',                              'textarea', true),
+      self::f('offer',          'Servicios / productos a destacar',       'textarea', true),
+      self::f('audience',       'Público objetivo',                       'textarea', true),
+      self::f('diff',           'Qué te diferencia (3 puntos)',           'textarea', true),
+      self::f('tone',           'Tono deseado',                           'textarea', false),
+      self::f('content_types',  'Tipo de contenido preferido',            'select',   false, ['Reels','Carruseles','Imagen única','Stories','Mixto']),
+      self::f('freq',           'Frecuencia ideal (posts/semana)',         'text',     false),
+      self::f('resources',      'Recursos disponibles (foto/vídeo)',      'textarea', false),
+      self::f('dont',           'Qué NO se puede decir/mostrar',          'textarea', false),
+      self::f('competitors',    'Competidores/referencias (URLs o @)',     'textarea', false),
+      self::f('cta',            'CTA principal',                          'text',     false),
+      self::f('notes',          'Notas adicionales',                      'textarea', false),
     ];
   }
 
   private static function default_form_seo() {
     return [
-      self::f('web_url','Web actual (URL)','url',false),
-      self::f('business_desc','Describe tu negocio y foco principal','textarea',true),
-      self::f('main_goal','Objetivo principal','select',true,['Leads','Llamadas-WhatsApp','Reservas','Ventas online','Otro']),
-      self::f('priority_offer','Lo que quieres vender primero (prioridad)','textarea',true),
-      self::f('top_categories','Top 3 servicios o categorías','textarea',true),
-      self::f('star_products','Top 3 productos/servicios estrella','textarea',false),
-      self::f('service_area','Zona de trabajo/venta + ¿local? + ¿GBP?','textarea',true),
-      self::f('ideal_client','Cliente ideal','textarea',true),
-      self::f('why_choose','Por qué te eligen (3 puntos)','textarea',true),
-      self::f('avg_ticket','Ticket medio','text',false),
-      self::f('how_find_you','Cómo te busca el cliente y qué solicita','textarea',false),
-      self::f('competitors_urls','3 competidores (URLs)','textarea',false),
-      self::f('webs_like','1–2 webs que te gusten (URLs)','textarea',false),
-      self::f('cta','CTA principal','text',false),
-      self::f('contact','Teléfono/WhatsApp + email de recepción','textarea',false),
-      self::f('accesses','Accesos (GSC/GA4/CMS)','textarea',false),
+      self::f('web_url',         'Web actual (URL)',                                'url',      false),
+      self::f('business_desc',   'Describe tu negocio y foco principal',            'textarea', true),
+      self::f('main_goal',       'Objetivo principal',                              'select',   true,  ['Leads','Llamadas-WhatsApp','Reservas','Ventas online','Otro']),
+      self::f('priority_offer',  'Lo que quieres vender primero (prioridad)',       'textarea', true),
+      self::f('top_categories',  'Top 3 servicios o categorías',                    'textarea', true),
+      self::f('star_products',   'Top 3 productos/servicios estrella',              'textarea', false),
+      self::f('service_area',    'Zona de trabajo/venta + ¿local? + ¿GBP?',        'textarea', true),
+      self::f('ideal_client',    'Cliente ideal',                                   'textarea', true),
+      self::f('why_choose',      'Por qué te eligen (3 puntos)',                    'textarea', true),
+      self::f('avg_ticket',      'Ticket medio',                                    'text',     false),
+      self::f('how_find_you',    'Cómo te busca el cliente y qué solicita',         'textarea', false),
+      self::f('competitors_urls','3 competidores (URLs)',                            'textarea', false),
+      self::f('webs_like',       '1–2 webs que te gusten (URLs)',                   'textarea', false),
+      self::f('cta',             'CTA principal',                                   'text',     false),
+      self::f('contact',         'Teléfono/WhatsApp + email de recepción',          'textarea', false),
+      self::f('accesses',        'Accesos (GSC/GA4/CMS)',                           'textarea', false),
     ];
   }
 
   private static function default_form_web() {
     return [
-      self::f('project_type','Tipo de web','select',true,['Corporativa','E-commerce','Landing','Blog','Otro']),
-      self::f('web_url','Web actual (si existe)','url',false),
-      self::f('goal','Objetivo principal de la web','textarea',true),
-      self::f('structure','Estructura deseada (secciones/páginas)','textarea',false),
-      self::f('services','Servicios/productos','textarea',true),
-      self::f('diff','Diferenciadores (3 puntos)','textarea',true),
-      self::f('assets','¿Tienes logo/branding/fotos? (enlace Drive)','textarea',false),
-      self::f('references','Referencias de webs (URLs)','textarea',false),
-      self::f('languages','Idiomas','text',false),
-      self::f('features','Funcionalidades (formularios, reservas, pagos...)','textarea',false),
-      self::f('legal','¿Necesitas textos legales?','select',false,['Sí','No','No lo sé']),
-      self::f('deadline','Fecha objetivo','text',false),
-      self::f('notes','Notas adicionales','textarea',false),
+      self::f('project_type','Tipo de web',                          'select',   true,  ['Corporativa','E-commerce','Landing','Blog','Otro']),
+      self::f('web_url',     'Web actual (si existe)',               'url',      false),
+      self::f('goal',        'Objetivo principal de la web',         'textarea', true),
+      self::f('structure',   'Estructura deseada (secciones/páginas)','textarea',false),
+      self::f('services',    'Servicios/productos',                  'textarea', true),
+      self::f('diff',        'Diferenciadores (3 puntos)',           'textarea', true),
+      self::f('assets',      '¿Tienes logo/branding/fotos? (enlace Drive)','textarea',false),
+      self::f('references',  'Referencias de webs (URLs)',           'textarea', false),
+      self::f('languages',   'Idiomas',                              'text',     false),
+      self::f('features',    'Funcionalidades (formularios, reservas, pagos...)','textarea',false),
+      self::f('legal',       '¿Necesitas textos legales?',           'select',   false, ['Sí','No','No lo sé']),
+      self::f('deadline',    'Fecha objetivo',                       'text',     false),
+      self::f('notes',       'Notas adicionales',                    'textarea', false),
+    ];
+  }
+
+  /* ═══════════════════════════════
+     FORMULARIOS INGLÉS
+  ═══════════════════════════════ */
+  private static function default_form_design_en() {
+    return [
+      self::f('brand_name',    'Brand / company name',               'text',     true),
+      self::f('contact_person','Contact person',                     'text',     true),
+      self::f('email',         'Email',                              'email',    true),
+      self::f('phone',         'Phone / WhatsApp',                   'text',     false),
+      self::f('brand_desc',    'Describe your brand (1–2 paragraphs)','textarea',true),
+      self::f('target',        'Ideal customer (who they are and what they look for)','textarea',true),
+      self::f('tone',          'Communication tone',                 'textarea', false),
+      self::f('colors',        'Brand colours (hex codes if available)','text',  false),
+      self::f('references',    'Visual references (URLs)',            'textarea', false),
+      self::f('deliverables',  'What exactly do you need?',          'textarea', true),
+      self::f('deadline',      'Deadline / urgency',                 'text',     false),
+      self::f('notes',         'Additional notes',                   'textarea', false),
+    ];
+  }
+
+  private static function default_form_social_en() {
+    return [
+      self::f('brand_name',    'Brand / company name',               'text',     true),
+      self::f('ig_handle',     'Instagram @handle',                  'text',     false),
+      self::f('channels',      'Other channels (TikTok, LinkedIn…)', 'text',     false),
+      self::f('objectives',    'Goals & objectives',                 'textarea', true),
+      self::f('offer',         'Services / products to highlight',   'textarea', true),
+      self::f('audience',      'Target audience',                    'textarea', true),
+      self::f('diff',          'What sets you apart (3 points)',     'textarea', true),
+      self::f('tone',          'Desired tone',                       'textarea', false),
+      self::f('content_types', 'Preferred content type',             'select',   false, ['Reels','Carousels','Single image','Stories','Mixed']),
+      self::f('freq',          'Ideal frequency (posts/week)',        'text',     false),
+      self::f('resources',     'Available resources (photos/video)', 'textarea', false),
+      self::f('dont',          'What should NOT be said/shown',      'textarea', false),
+      self::f('competitors',   'Competitors / references (URLs or @)','textarea',false),
+      self::f('cta',           'Main CTA',                           'text',     false),
+      self::f('notes',         'Additional notes',                   'textarea', false),
+    ];
+  }
+
+  private static function default_form_seo_en() {
+    return [
+      self::f('web_url',         'Current website (URL)',                          'url',      false),
+      self::f('business_desc',   'Describe your business and main focus',          'textarea', true),
+      self::f('main_goal',       'Primary goal',                                   'select',   true,  ['Leads','Calls/WhatsApp','Bookings','Online sales','Other']),
+      self::f('priority_offer',  'What you want to sell first (priority)',         'textarea', true),
+      self::f('top_categories',  'Top 3 services or categories',                  'textarea', true),
+      self::f('star_products',   'Top 3 star products/services',                  'textarea', false),
+      self::f('service_area',    'Work/sales area + local? + Google Business Profile?','textarea',true),
+      self::f('ideal_client',    'Ideal client',                                   'textarea', true),
+      self::f('why_choose',      'Why clients choose you (3 points)',              'textarea', true),
+      self::f('avg_ticket',      'Average order value',                            'text',     false),
+      self::f('how_find_you',    'How clients search for you and what they request','textarea',false),
+      self::f('competitors_urls','3 competitors (URLs)',                            'textarea', false),
+      self::f('webs_like',       '1–2 websites you like (URLs)',                   'textarea', false),
+      self::f('cta',             'Main CTA',                                       'text',     false),
+      self::f('contact',         'Phone/WhatsApp + reception email',               'textarea', false),
+      self::f('accesses',        'Access credentials (GSC/GA4/CMS)',               'textarea', false),
+    ];
+  }
+
+  private static function default_form_web_en() {
+    return [
+      self::f('project_type','Type of website',                      'select',   true,  ['Corporate','E-commerce','Landing page','Blog','Other']),
+      self::f('web_url',     'Current website (if any)',             'url',      false),
+      self::f('goal',        'Main goal of the website',             'textarea', true),
+      self::f('structure',   'Desired structure (sections/pages)',   'textarea', false),
+      self::f('services',    'Services / products',                  'textarea', true),
+      self::f('diff',        'Differentiators (3 points)',           'textarea', true),
+      self::f('assets',      'Do you have a logo/branding/photos? (Drive link)','textarea',false),
+      self::f('references',  'Website references (URLs)',            'textarea', false),
+      self::f('languages',   'Languages',                            'text',     false),
+      self::f('features',    'Features needed (forms, bookings, payments…)','textarea',false),
+      self::f('legal',       'Do you need legal texts?',             'select',   false, ['Yes','No','Not sure']),
+      self::f('deadline',    'Target date',                          'text',     false),
+      self::f('notes',       'Additional notes',                     'textarea', false),
     ];
   }
 }

@@ -9,39 +9,58 @@ class TTB_Client_UI {
 
     $c = $wpdb->get_row($wpdb->prepare("SELECT * FROM $clients WHERE id=%d", $client_id));
     if (!$c) {
-      echo '<div class="ttb-card"><p>Cliente no encontrado.</p></div>';
+      echo '<div class="ttb-card"><p>Client not found / Cliente no encontrado.</p></div>';
       return;
     }
 
     $services = json_decode((string)$c->services, true);
     if (!is_array($services)) $services = [];
 
+    // Idioma del cliente
+    $lang = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
+
+    $greeting  = $lang === 'en' ? 'Hello' : 'Hola';
+    $sub_text  = $lang === 'en'
+      ? 'Complete the assigned briefings. You can save and continue later, or submit when ready.'
+      : 'Completa los briefings asignados. Puedes guardar y seguir más tarde o enviar cuando lo tengas.';
+    $no_svc    = $lang === 'en'
+      ? 'No services assigned yet.'
+      : 'No tienes servicios asignados todavía.';
+
     echo '<div class="ttb-container">';
     echo '<div class="ttb-card ttb-card--header">';
-    echo '<h2>Hola, '.esc_html($c->name).' 👋</h2>';
-    echo '<p class="ttb-muted">Completa los briefings asignados. Puedes guardar y seguir más tarde o enviar cuando lo tengas.</p>';
+    echo '<h2>' . esc_html($greeting) . ', ' . esc_html($c->name) . ' 👋</h2>';
+    echo '<p class="ttb-muted">' . esc_html($sub_text) . '</p>';
     echo '</div>';
 
     if (!$services) {
-      echo '<div class="ttb-card"><p class="ttb-muted">No tienes servicios asignados todavía.</p></div></div>';
+      echo '<div class="ttb-card"><p class="ttb-muted">' . esc_html($no_svc) . '</p></div></div>';
       return;
     }
 
-    $titles = [
+    // Títulos por servicio según idioma
+    $titles_es = [
       'design' => 'Briefing de Diseño',
       'social' => 'Briefing de Redes',
       'seo'    => 'Briefing de SEO',
       'web'    => 'Briefing de Web',
     ];
+    $titles_en = [
+      'design' => 'Design Briefing',
+      'social' => 'Social Media Briefing',
+      'seo'    => 'SEO Briefing',
+      'web'    => 'Web Briefing',
+    ];
+    $titles = $lang === 'en' ? $titles_en : $titles_es;
 
     foreach ($services as $svc) {
-      $schema = TTB_Forms::get_schema($svc);
+      $schema  = TTB_Forms::get_schema($svc, $lang);
       $payload = TTB_Forms::get_client_answers($client_id, $svc);
       $answers = $payload['answers'];
-      $sent = (int)$payload['sent'];
-      $title = $titles[$svc] ?? strtoupper($svc);
+      $sent    = (int)$payload['sent'];
+      $title   = $titles[$svc] ?? strtoupper($svc);
 
-      include TTB_PATH.'templates/form.php';
+      include TTB_PATH . 'templates/form.php';
     }
 
     echo '</div>';
