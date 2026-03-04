@@ -7,13 +7,12 @@ if (!defined('ABSPATH')) exit;
     <p class="ttb-muted">Introduce tus credenciales para continuar.</p>
   </div>
 
-  <form method="post" class="ttb-form">
-    <?php wp_nonce_field('ttb_login'); ?>
+  <form method="post" action="<?php echo esc_url(home_url('/briefing')); ?>" class="ttb-form">
     <label>Usuario</label>
-    <input class="ttb-input" type="text" name="username" required>
+    <input class="ttb-input" type="text" name="username" autocomplete="username" required>
 
     <label>Contraseña</label>
-    <input class="ttb-input" type="password" name="password" required>
+    <input class="ttb-input" type="password" name="password" autocomplete="current-password" required>
 
     <button class="ttb-btn" type="submit" name="ttb_login" value="1">Entrar</button>
   </form>

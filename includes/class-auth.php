@@ -18,42 +18,17 @@ class TTB_Auth {
       exit;
     }
 
-    // autologin por URL: /briefing?ttb_u=usuario&ttb_p=contraseña
-    if (isset($_GET['ttb_u'], $_GET['ttb_p'])) {
-      $u = sanitize_text_field($_GET['ttb_u']);
-      $p = (string)$_GET['ttb_p'];
-
-      $admin_user = (string)get_option('ttb_admin_user', 'tictac');
-      $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
-
-      if ($u === $admin_user && $admin_hash && password_verify($p, $admin_hash)) {
-        $this->set_session(['role' => 'admin', 'client_id' => 0]);
-        wp_safe_redirect(home_url('/briefing'));
-        exit;
-      }
-
-      $client = $this->get_client_by_username($u);
-      if ($client && password_verify($p, $client->pass_hash)) {
-        $this->set_session(['role' => 'client', 'client_id' => (int)$client->id]);
-        wp_safe_redirect(home_url('/briefing'));
-        exit;
-      }
-
-      // Credenciales incorrectas — redirige al login limpio sin exponer los parámetros
-      wp_safe_redirect(home_url('/briefing'));
-      exit;
-    }
-
     // login submit por formulario
     if (isset($_POST['ttb_login'])) {
-      if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_login')) {
-        $this->flash('error', 'Sesión inválida. Recarga y prueba otra vez.');
-        wp_safe_redirect(home_url('/briefing'));
-        exit;
-      }
 
       $u = sanitize_text_field($_POST['username'] ?? '');
       $p = (string)($_POST['password'] ?? '');
+
+      if (!$u || !$p) {
+        $this->flash('error', 'Introduce usuario y contraseña.');
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
 
       $admin_user = (string)get_option('ttb_admin_user', 'tictac');
       $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
@@ -84,7 +59,8 @@ class TTB_Auth {
   }
 
   public function logout() {
-    setcookie(self::COOKIE, '', time()-3600, COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true);
+    setcookie(self::COOKIE, '', time() - 3600, '/', '', false, true);
+    setcookie(self::COOKIE, '', time() - 3600, '/', '', true,  true);
     unset($_COOKIE[self::COOKIE]);
   }
 
@@ -99,7 +75,7 @@ class TTB_Auth {
     $payload = base64_decode($payload_b64);
     if (!$payload) return null;
 
-    $expected = hash_hmac('sha256', $payload_b64, wp_salt('auth'));
+    $expected = hash_hmac('sha256', $payload_b64, self::get_secret());
     if (!hash_equals($expected, $sig)) return null;
 
     $data = json_decode($payload, true);
@@ -112,13 +88,22 @@ class TTB_Auth {
 
   private function set_session($data) {
     $data['exp'] = time() + self::TTL;
-    $payload = wp_json_encode($data);
+    $payload     = wp_json_encode($data);
     $payload_b64 = base64_encode($payload);
-    $sig = hash_hmac('sha256', $payload_b64, wp_salt('auth'));
-    $cookie = $payload_b64 . '.' . $sig;
+    $sig         = hash_hmac('sha256', $payload_b64, self::get_secret());
+    $cookie      = $payload_b64 . '.' . $sig;
 
-    setcookie(self::COOKIE, $cookie, $data['exp'], COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true);
+    setcookie(self::COOKIE, $cookie, $data['exp'], '/', '', is_ssl(), true);
     $_COOKIE[self::COOKIE] = $cookie;
+  }
+
+  private static function get_secret() {
+    $secret = get_option('ttb_secret_key');
+    if (!$secret) {
+      $secret = bin2hex(random_bytes(32));
+      update_option('ttb_secret_key', $secret);
+    }
+    return (string)$secret;
   }
 
   public function is_admin() {
@@ -137,7 +122,7 @@ class TTB_Auth {
   }
 
   public function flash($type, $text) {
-    set_transient('ttb_flash', ['type'=>$type,'text'=>$text], 60);
+    set_transient('ttb_flash', ['type' => $type, 'text' => $text], 60);
   }
 
   public function consume_flash() {
