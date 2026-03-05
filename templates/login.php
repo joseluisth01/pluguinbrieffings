@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) exit;
     <p class="ttb-muted">Introduce tus credenciales para continuar.</p>
   </div>
 
-  <form method="post" action="<?php echo esc_url(TTB_URL . 'ttb-login-handler.php'); ?>" class="ttb-form">
+  <form method="post" action="<?php echo esc_url(home_url('/briefing')); ?>" class="ttb-form">
     <?php wp_nonce_field('ttb_login'); ?>
     <label>Usuario</label>
     <input class="ttb-input" type="text" name="username" required>

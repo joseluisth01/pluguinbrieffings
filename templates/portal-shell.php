@@ -138,4 +138,92 @@ include TTB_PATH.'templates/client.php';
 
 </div>
 
+<?php
+// ── Modal de envío exitoso ──────────────────────────────────
+if ($auth->is_client()) {
+  $modal_svc = TTB_Forms::consume_modal($auth->client_id());
+  if ($modal_svc) {
+    $modal_titles = [
+      'es' => [
+        'design' => 'Briefing de Diseño enviado',
+        'social' => 'Briefing de Redes enviado',
+        'seo'    => 'Briefing SEO enviado',
+        'web'    => 'Briefing Web enviado',
+      ],
+      'en' => [
+        'design' => 'Design Briefing submitted',
+        'social' => 'Social Media Briefing submitted',
+        'seo'    => 'SEO Briefing submitted',
+        'web'    => 'Web Briefing submitted',
+      ],
+    ];
+    $modal_subs = [
+      'es' => [
+        'design' => 'Diseño',
+        'social' => 'Redes Sociales',
+        'seo'    => 'SEO',
+        'web'    => 'Web',
+      ],
+      'en' => [
+        'design' => 'Design',
+        'social' => 'Social Media',
+        'seo'    => 'SEO',
+        'web'    => 'Web',
+      ],
+    ];
+    $modal_emojis = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐'];
+    $modal_msgs = [
+      'es' => 'Nuestro equipo lo revisará y se pondrá en contacto contigo muy pronto. ¡Gracias por confiar en TicTac!',
+      'en' => 'Our team will review it and get in touch with you very soon. Thank you for trusting TicTac!',
+    ];
+    $modal_btn = ['es' => 'Perfecto, ¡gracias! 🎉', 'en' => 'Great, thanks! 🎉'];
+
+    $t     = $modal_titles[$lang][$modal_svc]  ?? 'Briefing enviado';
+    $sub   = $modal_subs[$lang][$modal_svc]    ?? strtoupper($modal_svc);
+    $emoji = $modal_emojis[$modal_svc]         ?? '✅';
+    $msg   = $modal_msgs[$lang]                ?? $modal_msgs['es'];
+    $btn   = $modal_btn[$lang]                 ?? $modal_btn['es'];
+    ?>
+    <div class="ttb-modal-overlay" id="ttbSuccessModal" role="dialog" aria-modal="true" aria-labelledby="ttbSuccessTitle">
+      <div class="ttb-modal">
+        <div class="ttb-modal__confetti">
+          <?php for ($i = 1; $i <= 18; $i++) echo '<div class="ttb-confetti-dot"></div>'; ?>
+        </div>
+        <span class="ttb-modal__emoji" aria-hidden="true"><?php echo $emoji; ?></span>
+        <h2 class="ttb-modal__title" id="ttbSuccessTitle"><?php echo esc_html($t); ?></h2>
+        <p class="ttb-modal__sub"><?php echo esc_html($sub); ?></p>
+        <p class="ttb-modal__msg"><?php echo esc_html($msg); ?></p>
+        <button class="ttb-btn ttb-modal__close" id="ttbSuccessClose"><?php echo esc_html($btn); ?></button>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var overlay = document.getElementById('ttbSuccessModal');
+      var closeBtn = document.getElementById('ttbSuccessClose');
+      if (!overlay) return;
+
+      // Ocultar spinner si quedó activo
+      var spinner = document.getElementById('ttbSendingOverlay');
+      if (spinner) spinner.classList.remove('active');
+
+      function closeModal() {
+        overlay.classList.add('ttb-modal-overlay--out');
+        overlay.addEventListener('animationend', function() {
+          overlay.remove();
+        }, { once: true });
+      }
+      closeBtn.addEventListener('click', closeModal);
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeModal();
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeModal();
+      });
+    })();
+    </script>
+    <?php
+  }
+}
+?>
+
 <?php get_footer(); ?>
