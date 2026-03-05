@@ -58,9 +58,18 @@ class TTB_Auth {
     return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE username = %s LIMIT 1", $username));
   }
 
+  private function is_https() {
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') return true;
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') return true;
+    if (!empty($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on') return true;
+    if (strpos(home_url(), 'https://') === 0) return true;
+    return false;
+  }
+
   public function logout() {
-    setcookie(self::COOKIE, '', time() - 3600, '/', '', false, true);
-    setcookie(self::COOKIE, '', time() - 3600, '/', '', true,  true);
+    $secure = $this->is_https();
+    setcookie(self::COOKIE, '', time() - 3600, '/', '', $secure, true);
+    setcookie(self::COOKIE, '', time() - 3600, '/', '', false,   true);
     unset($_COOKIE[self::COOKIE]);
   }
 
@@ -87,13 +96,15 @@ class TTB_Auth {
   }
 
   private function set_session($data) {
+    $secure = $this->is_https();
+
     $data['exp'] = time() + self::TTL;
     $payload     = wp_json_encode($data);
     $payload_b64 = base64_encode($payload);
     $sig         = hash_hmac('sha256', $payload_b64, self::get_secret());
     $cookie      = $payload_b64 . '.' . $sig;
 
-    setcookie(self::COOKIE, $cookie, $data['exp'], '/', '', is_ssl(), true);
+    setcookie(self::COOKIE, $cookie, $data['exp'], '/', '', $secure, true);
     $_COOKIE[self::COOKIE] = $cookie;
   }
 
