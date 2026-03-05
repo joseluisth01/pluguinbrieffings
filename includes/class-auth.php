@@ -3,108 +3,88 @@ if (!defined('ABSPATH')) exit;
 
 class TTB_Auth {
 
-  const COOKIE    = 'ttb_session';
-  const TTL       = 60 * 60 * 8; // 8h
-  const FLASH_KEY = 'ttb_flash';
+  const COOKIE = 'ttb_session';
+  const TTL = 60 * 60 * 8; // 8h
 
   public function init() {
-    add_action('init', [$this, 'handle'], 1);
+    add_action('init', [$this, 'handle']);
   }
 
   public function handle() {
-    // Solo actuar en /briefing
-    $uri = $_SERVER['REQUEST_URI'] ?? '';
-    if (strpos($uri, '/briefing') === false) return;
-
-    // ── Logout ──────────────────────────────────────────
+    // logout
     if (isset($_GET['ttb_logout'])) {
       $this->logout();
-      $this->redirect(home_url('/briefing'));
-    }
-
-    // ── Login ────────────────────────────────────────────
-    if (!isset($_POST['ttb_login'])) return;
-
-    $u = sanitize_text_field($_POST['username'] ?? '');
-    $p = (string)($_POST['password'] ?? '');
-
-    // Campos vacíos
-    if ($u === '' && $p === '') {
-      $this->flash('error', 'Introduce tu usuario y contraseña.');
-      $this->redirect(home_url('/briefing'));
-    }
-    if ($u === '') {
-      $this->flash('error', 'El campo usuario es obligatorio.');
-      $this->redirect(home_url('/briefing'));
-    }
-    if ($p === '') {
-      $this->flash('error', 'El campo contraseña es obligatorio.');
-      $this->redirect(home_url('/briefing'));
-    }
-
-    // ── Comprobar admin ──────────────────────────────────
-    $admin_user = (string)get_option('ttb_admin_user', 'tictac');
-    $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
-
-    if ($u === $admin_user) {
-      if ($admin_hash && password_verify($p, $admin_hash)) {
-        $this->set_session(['role' => 'admin', 'client_id' => 0]);
-        $this->redirect(home_url('/briefing'));
-      }
-      $this->flash('error', 'Contraseña incorrecta. Inténtalo de nuevo.');
-      $this->redirect(home_url('/briefing'));
-    }
-
-    // ── Comprobar cliente ────────────────────────────────
-    $client = $this->get_client_by_username($u);
-    if ($client) {
-      if (password_verify($p, $client->pass_hash)) {
-        $this->set_session(['role' => 'client', 'client_id' => (int)$client->id]);
-        $this->redirect(home_url('/briefing'));
-      }
-      $this->flash('error', 'Contraseña incorrecta. Inténtalo de nuevo.');
-      $this->redirect(home_url('/briefing'));
-    }
-
-    // ── Usuario no encontrado ────────────────────────────
-    $this->flash('error', 'Usuario no encontrado. Revisa el email de invitación.');
-    $this->redirect(home_url('/briefing'));
-  }
-
-  /**
-   * Redirect robusto: fallback a meta-refresh si las cabeceras ya fueron enviadas.
-   */
-  private function redirect($url) {
-    if (headers_sent()) {
-      echo '<meta http-equiv="refresh" content="0;url=' . esc_url($url) . '">';
-      echo '<script>window.location.href=' . json_encode($url) . ';</script>';
+      wp_safe_redirect(home_url('/briefing'));
       exit;
     }
-    wp_safe_redirect($url);
-    exit;
+
+    // autologin por URL: /briefing?ttb_u=usuario&ttb_p=contraseña
+    if (isset($_GET['ttb_u'], $_GET['ttb_p'])) {
+      $u = sanitize_text_field($_GET['ttb_u']);
+      $p = (string)$_GET['ttb_p'];
+
+      $admin_user = (string)get_option('ttb_admin_user', 'tictac');
+      $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
+
+      if ($u === $admin_user && $admin_hash && password_verify($p, $admin_hash)) {
+        $this->set_session(['role' => 'admin', 'client_id' => 0]);
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
+
+      $client = $this->get_client_by_username($u);
+      if ($client && password_verify($p, $client->pass_hash)) {
+        $this->set_session(['role' => 'client', 'client_id' => (int)$client->id]);
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
+
+      // Credenciales incorrectas — redirige al login limpio sin exponer los parámetros
+      wp_safe_redirect(home_url('/briefing'));
+      exit;
+    }
+
+    // login submit por formulario
+    if (isset($_POST['ttb_login'])) {
+      if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_login')) {
+        $this->flash('error', 'Sesión inválida. Recarga y prueba otra vez.');
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
+
+      $u = sanitize_text_field($_POST['username'] ?? '');
+      $p = (string)($_POST['password'] ?? '');
+
+      $admin_user = (string)get_option('ttb_admin_user', 'tictac');
+      $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
+
+      if ($u === $admin_user && $admin_hash && password_verify($p, $admin_hash)) {
+        $this->set_session(['role' => 'admin', 'client_id' => 0]);
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
+
+      $client = $this->get_client_by_username($u);
+      if ($client && password_verify($p, $client->pass_hash)) {
+        $this->set_session(['role' => 'client', 'client_id' => (int)$client->id]);
+        wp_safe_redirect(home_url('/briefing'));
+        exit;
+      }
+
+      $this->flash('error', 'Usuario o contraseña incorrectos.');
+      wp_safe_redirect(home_url('/briefing'));
+      exit;
+    }
   }
 
   private function get_client_by_username($username) {
     global $wpdb;
     $table = TTB_DB::clients_table();
-    return $wpdb->get_row($wpdb->prepare(
-      "SELECT * FROM $table WHERE username = %s LIMIT 1",
-      $username
-    ));
-  }
-
-  private function is_https() {
-    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') return true;
-    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') return true;
-    if (!empty($_SERVER['HTTP_X_FORWARDED_SSL'])   && $_SERVER['HTTP_X_FORWARDED_SSL']   === 'on')   return true;
-    if (strpos(home_url(), 'https://') === 0) return true;
-    return false;
+    return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE username = %s LIMIT 1", $username));
   }
 
   public function logout() {
-    $secure = $this->is_https();
-    setcookie(self::COOKIE, '', time() - 3600, '/', '', $secure, true);
-    setcookie(self::COOKIE, '', time() - 3600, '/', '', false,   true);
+    setcookie(self::COOKIE, '', time()-3600, COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true);
     unset($_COOKIE[self::COOKIE]);
   }
 
@@ -119,7 +99,7 @@ class TTB_Auth {
     $payload = base64_decode($payload_b64);
     if (!$payload) return null;
 
-    $expected = hash_hmac('sha256', $payload_b64, self::get_secret());
+    $expected = hash_hmac('sha256', $payload_b64, wp_salt('auth'));
     if (!hash_equals($expected, $sig)) return null;
 
     $data = json_decode($payload, true);
@@ -131,25 +111,14 @@ class TTB_Auth {
   }
 
   private function set_session($data) {
-    $secure = $this->is_https();
-
     $data['exp'] = time() + self::TTL;
-    $payload     = wp_json_encode($data);
+    $payload = wp_json_encode($data);
     $payload_b64 = base64_encode($payload);
-    $sig         = hash_hmac('sha256', $payload_b64, self::get_secret());
-    $cookie      = $payload_b64 . '.' . $sig;
+    $sig = hash_hmac('sha256', $payload_b64, wp_salt('auth'));
+    $cookie = $payload_b64 . '.' . $sig;
 
-    setcookie(self::COOKIE, $cookie, $data['exp'], '/', '', $secure, true);
+    setcookie(self::COOKIE, $cookie, $data['exp'], COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true);
     $_COOKIE[self::COOKIE] = $cookie;
-  }
-
-  private static function get_secret() {
-    $secret = get_option('ttb_secret_key');
-    if (!$secret) {
-      $secret = bin2hex(random_bytes(32));
-      update_option('ttb_secret_key', $secret);
-    }
-    return (string)$secret;
   }
 
   public function is_admin() {
@@ -167,17 +136,13 @@ class TTB_Auth {
     return (int)($s['client_id'] ?? 0);
   }
 
-  // ── Flash messages ──────────────────────────────────────
-  // Key fija (sin IP) para que sobreviva el POST → redirect → GET
-  // aunque haya un proxy o load balancer de por medio.
-
   public function flash($type, $text) {
-    set_transient(self::FLASH_KEY, ['type' => $type, 'text' => $text], 60);
+    set_transient('ttb_flash', ['type'=>$type,'text'=>$text], 60);
   }
 
   public function consume_flash() {
-    $m = get_transient(self::FLASH_KEY);
-    if ($m) delete_transient(self::FLASH_KEY);
-    return $m ?: null;
+    $m = get_transient('ttb_flash');
+    if ($m) delete_transient('ttb_flash');
+    return $m;
   }
 }

@@ -12,10 +12,6 @@ if ($auth->is_client()) {
   $lang      = TTB_Forms::get_client_lang($auth->client_id());
 }
 
-// URL del handler de login/logout
-$handler_url = TTB_URL . 'ttb-login-handler.php';
-$logout_url  = esc_url(add_query_arg(['ttb_action' => 'logout'], $handler_url));
-
 // Datos del modal por idioma
 $modal_data = [
   'es' => [
@@ -32,8 +28,12 @@ $modal_data = [
   ],
 ];
 
-$modal_set    = $modal_data[$lang] ?? $modal_data['es'];
-$logout_label = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
+$modal_set = $modal_data[$lang] ?? $modal_data['es'];
+
+// Login page language
+$login_title   = $lang === 'en' ? 'Briefing Access' : 'Acceso Briefing';
+$login_sub     = $lang === 'en' ? 'Enter your credentials to continue.' : 'Introduce tus credenciales para continuar.';
+$logout_label  = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
 ?><!DOCTYPE html>
 <html <?php language_attributes(); ?>>
 <head>
@@ -53,13 +53,18 @@ $logout_label = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
 <?php $md = $modal_set[$modal_svc]; ?>
 <div class="ttb-modal-overlay" id="ttbModal" role="dialog" aria-modal="true" aria-labelledby="ttbModalTitle">
   <div class="ttb-modal">
+
     <div class="ttb-modal__confetti" aria-hidden="true">
-      <?php for ($i = 0; $i < 18; $i++): ?><span class="ttb-confetti-dot"></span><?php endfor; ?>
+      <?php for ($i = 0; $i < 18; $i++): ?>
+        <span class="ttb-confetti-dot"></span>
+      <?php endfor; ?>
     </div>
+
     <div class="ttb-modal__emoji"><?php echo $md['emoji']; ?></div>
     <h2 class="ttb-modal__title" id="ttbModalTitle"><?php echo esc_html($md['title']); ?></h2>
     <p class="ttb-modal__sub"><?php echo esc_html($md['sub']); ?></p>
     <p class="ttb-modal__msg"><?php echo esc_html($md['msg']); ?></p>
+
     <button class="ttb-btn ttb-modal__close" id="ttbModalClose" autofocus>
       <?php echo esc_html($md['btn']); ?>
     </button>
@@ -75,7 +80,7 @@ $logout_label = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
         <img src="https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png" alt="TicTac">
       </a>
       <?php if ($auth->current()): ?>
-        <a class="ttb-logout" href="<?php echo $logout_url; ?>">
+        <a class="ttb-logout" href="<?php echo esc_url(add_query_arg(['ttb_logout' => 1], home_url('/briefing'))); ?>">
           <?php echo esc_html($logout_label); ?>
         </a>
       <?php endif; ?>
@@ -92,6 +97,7 @@ $logout_label = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
 
     <?php
     if (!$auth->current()):
+      // Detectar idioma desde cookie provisional o mostrar bilingüe en login
       include TTB_PATH . 'templates/login.php';
     elseif ($auth->is_admin()):
       include TTB_PATH . 'templates/admin.php';
@@ -100,9 +106,9 @@ $logout_label = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
     endif;
     ?>
 
-  </div>
+  </div><!-- .ttb-main -->
 
-</div>
+</div><!-- .ttb-portal -->
 
 <?php if ($modal_svc): ?>
 <script>
@@ -114,8 +120,12 @@ $logout_label = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
     setTimeout(function(){ overlay.style.display = 'none'; }, 400);
   }
   btn.addEventListener('click', closeModal);
-  overlay.addEventListener('click', function(e){ if (e.target === overlay) closeModal(); });
-  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+  overlay.addEventListener('click', function(e){
+    if (e.target === overlay) closeModal();
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closeModal();
+  });
   window.scrollTo({top: 0, behavior: 'smooth'});
 })();
 </script>
