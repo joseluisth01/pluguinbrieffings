@@ -33,32 +33,41 @@ class TTB_Router {
   public function render() {
     if (!$this->is_portal()) return;
 
-    // ✅ BLOQUEO DE CACHÉ: muy importante para que /briefing no se cachee "logueado"
+    // Ignorar HEAD requests completamente
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'HEAD') {
+      status_header(200);
+      nocache_headers();
+      exit;
+    }
+
+    // BLOQUEO DE CACHÉ
     if (!defined('DONOTCACHEPAGE'))   define('DONOTCACHEPAGE', true);
     if (!defined('DONOTCACHEDB'))     define('DONOTCACHEDB', true);
     if (!defined('DONOTCACHEOBJECT')) define('DONOTCACHEOBJECT', true);
 
-    // No cache headers (más agresivos que nocache_headers() solo)
+    if (!headers_sent()) {
+      header_remove('Last-Modified');
+      header_remove('ETag');
+      header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0', true);
+      header('Pragma: no-cache', true);
+      header('Expires: Thu, 01 Jan 1970 00:00:00 GMT', true);
+      header('Surrogate-Control: no-store', true);
+      header('X-Accel-Expires: 0', true);
+      header('X-Cache-Enabled: false', true);
+      header('X-LiteSpeed-Cache-Control: no-cache', true);
+      header('Vary: Cookie, Authorization', true);
+      header('X-Robots-Tag: noindex, nofollow, noarchive', true);
+    }
+
     nocache_headers();
 
-    header('X-Robots-Tag: noindex, nofollow, noarchive', true);
-
-    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true);
-    header('Cache-Control: post-check=0, pre-check=0', false);
-    header('Pragma: no-cache', true);
-    header('Expires: Wed, 11 Jan 1984 05:00:00 GMT', true);
-
-    // Ayuda a caches intermedias a variar por cookies
-    header('Vary: Cookie', false);
-
     add_filter('wp_robots', function ($robots) {
-      $robots['noindex'] = true;
-      $robots['nofollow'] = true;
+      $robots['noindex']   = true;
+      $robots['nofollow']  = true;
       $robots['noarchive'] = true;
       return $robots;
     });
 
-    // Render shell dentro del theme
     include TTB_PATH . 'templates/portal-shell.php';
     exit;
   }

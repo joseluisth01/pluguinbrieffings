@@ -12,20 +12,23 @@ class TTB_Auth {
 
   public function handle() {
 
-    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    $uri    = $_SERVER['REQUEST_URI'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'] ?? '';
 
-    // ✅ Importante: este auth SOLO debe actuar en el portal /briefing
-    // Evita autologin “raro” o comportamiento en /wp-admin, /, /wp-login, etc.
+    // ✅ Solo actuar en el portal /briefing
     if (strpos($uri, '/briefing') !== 0) {
+      return;
+    }
+
+    // ✅ Ignorar HEAD requests — Chrome los lanza automáticamente
+    // y pueden interferir con cookies y estado de sesión
+    if ($method === 'HEAD') {
       return;
     }
 
     TTB_Logger::log('Auth handle start', ['method' => $method, 'uri' => $uri]);
 
-    // ✅ Logout del portal (acepta dos formatos)
-    // /briefing?ttb_logout=1  (nuevo)
-    // /briefing?ttb_action=logout (compat)
+    // ✅ Logout del portal
     if (
       isset($_GET['ttb_logout']) ||
       (isset($_GET['ttb_action']) && $_GET['ttb_action'] === 'logout')
@@ -44,7 +47,6 @@ class TTB_Auth {
       $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
 
       if ($u === $admin_user) {
-        // Recovery: si el hash está vacío, lo regeneramos con la contraseña introducida
         if (!$admin_hash) {
           $admin_hash = password_hash($p, PASSWORD_DEFAULT);
           update_option('ttb_admin_pass_hash', $admin_hash);
@@ -131,10 +133,8 @@ class TTB_Auth {
   }
 
   private function cookie_domain() {
-    // Mejor dejarlo vacío para que el navegador use el host actual.
-    // (Evita líos con www/no-www).
     return '';
-  }
+}
 
   private function get_client_by_username($username) {
     global $wpdb;
@@ -142,34 +142,40 @@ class TTB_Auth {
     return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE username = %s LIMIT 1", $username));
   }
 
-  public function logout() {
-    $path   = '/';
-    $domain = $this->cookie_domain();
+public function logout() {
     $secure = $this->is_https();
-
-    // Borrar cookie en variantes secure/no-secure para evitar “se queda pegada”
-    setcookie(self::COOKIE, '', time() - 3600, $path, $domain, $secure, true);
-    setcookie(self::COOKIE, '', time() - 3600, $path, $domain, false, true);
-
+    setcookie(self::COOKIE, '', [
+        'expires'  => time() - 3600,
+        'path'     => '/',
+        'domain'   => '',
+        'secure'   => $secure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
     unset($_COOKIE[self::COOKIE]);
-
-    TTB_Logger::log('Logged out (cookie cleared)', ['secure' => $secure]);
-  }
+    TTB_Logger::log('Logged out');
+}
 
   public function current() {
     $raw = $_COOKIE[self::COOKIE] ?? '';
-    if (!$raw) return null;
+    if (!$raw) {
+      TTB_Logger::log('Auth::current - no cookie found');
+      return null;
+    }
 
     $parts = explode('.', $raw);
-    if (count($parts) !== 2) return null;
+    if (count($parts) !== 2) {
+      TTB_Logger::log('Auth::current - cookie malformed');
+      return null;
+    }
 
     [$payload_b64, $sig] = $parts;
     $payload = base64_decode($payload_b64);
-    if (!$payload) return null;
+    if (!$payload) {
+      TTB_Logger::log('Auth::current - base64 decode failed');
+      return null;
+    }
 
-    // Acepta ambas llaves por compatibilidad:
-    // 1) ttb_secret_key (handler)
-    // 2) wp_salt('auth') (versiones anteriores)
     $keys = array_unique([
       $this->secret(),
       wp_salt('auth'),
@@ -180,12 +186,21 @@ class TTB_Auth {
       $expected = hash_hmac('sha256', $payload_b64, $k);
       if (hash_equals($expected, $sig)) { $valid = true; break; }
     }
-    if (!$valid) return null;
+    if (!$valid) {
+      TTB_Logger::log('Auth::current - HMAC invalid');
+      return null;
+    }
 
     $data = json_decode($payload, true);
-    if (!is_array($data)) return null;
+    if (!is_array($data)) {
+      TTB_Logger::log('Auth::current - JSON decode failed');
+      return null;
+    }
 
-    if (empty($data['exp']) || time() > (int)$data['exp']) return null;
+    if (empty($data['exp']) || time() > (int)$data['exp']) {
+      TTB_Logger::log('Auth::current - session expired');
+      return null;
+    }
 
     return $data;
   }
@@ -202,13 +217,21 @@ class TTB_Auth {
     $domain = $this->cookie_domain();
     $secure = $this->is_https();
 
-    setcookie(self::COOKIE, $cookie, $data['exp'], $path, $domain, $secure, true);
+    setcookie(self::COOKIE, $cookie, [
+    'expires'  => $data['exp'],
+    'path'     => $path,
+    'domain'   => '',
+    'secure'   => $secure,
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
     $_COOKIE[self::COOKIE] = $cookie;
 
     TTB_Logger::log('Session cookie set', [
       'role'      => ($data['role'] ?? ''),
       'client_id' => ($data['client_id'] ?? 0),
-      'secure'    => $secure
+      'secure'    => $secure,
+      'domain'    => $domain,
     ]);
   }
 

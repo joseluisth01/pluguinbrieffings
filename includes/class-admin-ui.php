@@ -41,7 +41,7 @@ class TTB_Admin_UI {
 
   /* ── Tabs ── */
   private static function tab_link($key, $label, $active) {
-    $url = esc_url(add_query_arg(['tab' => $key], home_url('/briefing')));
+    $url = esc_url(home_url('/briefing?tab=' . $key));
     $cls = ($key === $active) ? 'ttb-tab ttb-tab--active' : 'ttb-tab';
     echo '<a class="' . $cls . '" href="' . $url . '">' . esc_html($label) . '</a>';
   }
@@ -61,7 +61,7 @@ class TTB_Admin_UI {
 
     $tab = ($lang === 'en') ? 'forms_en' : 'forms';
     (new TTB_Auth())->flash('success', 'Formularios guardados.');
-    wp_safe_redirect(add_query_arg(['tab' => $tab], home_url('/briefing')));
+    wp_safe_redirect(home_url('/briefing?tab=' . $tab));
     exit;
   }
 
@@ -77,7 +77,7 @@ class TTB_Admin_UI {
 
     if (!$name || !$email) {
       (new TTB_Auth())->flash('error', 'Nombre y email son obligatorios.');
-      wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
+      wp_safe_redirect(home_url('/briefing?tab=clients&_=' . time()));
       exit;
     }
 
@@ -106,7 +106,7 @@ class TTB_Admin_UI {
     (new TTB_Mailer())->send_client_access($name, $email, $username, $password, $services, $lang);
 
     (new TTB_Auth())->flash('success', 'Cliente creado y email enviado.');
-    wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
+    wp_safe_redirect(home_url('/briefing?tab=clients&_=' . time()));
     exit;
   }
 
@@ -125,7 +125,7 @@ class TTB_Admin_UI {
 
     if (!$name || !$email) {
       (new TTB_Auth())->flash('error', 'Nombre y email son obligatorios.');
-      wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
+      wp_safe_redirect(home_url('/briefing?tab=clients&_=' . time()));
       exit;
     }
 
@@ -141,7 +141,7 @@ class TTB_Admin_UI {
     ], ['id' => $client_id]);
 
     (new TTB_Auth())->flash('success', 'Cliente actualizado correctamente.');
-    wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
+    wp_safe_redirect(home_url('/briefing?tab=clients&_=' . time()));
     exit;
   }
 
@@ -158,7 +158,7 @@ class TTB_Admin_UI {
     $wpdb->delete(TTB_DB::answers_table(), ['client_id' => $client_id]);
 
     (new TTB_Auth())->flash('success', 'Cliente eliminado.');
-    wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
+    wp_safe_redirect(home_url('/briefing?tab=clients&_=' . time()));
     exit;
   }
 
@@ -183,7 +183,7 @@ class TTB_Admin_UI {
     (new TTB_Mailer())->send_client_access((string)$c->name, (string)$c->email, (string)$c->username, $password, $services, $lang);
 
     (new TTB_Auth())->flash('success', 'Email reenviado.');
-    wp_safe_redirect(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
+    wp_safe_redirect(home_url('/briefing?tab=clients&_=' . time()));
     exit;
   }
 
@@ -203,7 +203,7 @@ class TTB_Admin_UI {
     echo '<div class="ttb-card"><h3>Formularios — ' . esc_html($lang_label) . ' (JSON)</h3>';
     echo '<p class="ttb-muted">Edita campos por servicio. Formato: lista de objetos con id/label/type/required/options.</p></div>';
 
-    echo '<form method="post" class="ttb-card">';
+    echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=' . ($lang === 'en' ? 'forms_en' : 'forms'))) . '" class="ttb-card">';
     wp_nonce_field('ttb_admin_forms');
     echo '<input type="hidden" name="ttb_form_lang" value="' . esc_attr($lang) . '">';
     echo '<div class="ttb-grid2">';
@@ -239,7 +239,7 @@ class TTB_Admin_UI {
 
     /* ── Formulario crear ── */
     echo '<div class="ttb-card"><h3>Crear cliente</h3></div>';
-    echo '<form method="post" class="ttb-card">';
+    echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" class="ttb-card">';
     wp_nonce_field('ttb_admin_clients');
     echo '<div class="ttb-grid2">';
     echo '<div><label>Nombre</label><input class="ttb-input" type="text" name="client_name" required></div>';
@@ -266,13 +266,13 @@ class TTB_Admin_UI {
       $edit_services = json_decode((string)$edit_c->services, true);
       if (!is_array($edit_services)) $edit_services = [];
       $edit_lang  = in_array($edit_c->lang ?? '', ['es', 'en'], true) ? $edit_c->lang : 'es';
-      $cancel_url = esc_url(add_query_arg(['tab' => 'clients'], home_url('/briefing')));
+      $cancel_url = esc_url(home_url('/briefing?tab=clients'));
 
       echo '<div class="ttb-modal-overlay ttb-edit-modal-overlay" id="ttbEditModal" role="dialog" aria-modal="true" aria-labelledby="ttbEditTitle">';
       echo '<div class="ttb-modal ttb-edit-modal">';
       echo '<h3 class="ttb-edit-modal__title" id="ttbEditTitle">✏️ Editar cliente</h3>';
 
-      echo '<form method="post" class="ttb-formgrid">';
+      echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" class="ttb-formgrid">';
       wp_nonce_field('ttb_admin_edit_client');
       echo '<input type="hidden" name="client_id" value="' . (int)$edit_c->id . '">';
 
@@ -316,7 +316,7 @@ class TTB_Admin_UI {
       $sv = json_decode((string)$c->services, true);
       if (!is_array($sv)) $sv = [];
       $c_lang    = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
-      $edit_url  = esc_url(add_query_arg(['tab' => 'clients', 'edit_client' => (int)$c->id], home_url('/briefing')));
+      $edit_url  = esc_url(home_url('/briefing?tab=clients&edit_client=' . (int)$c->id));
 
       echo '<tr>';
       echo '<td><strong>' . esc_html($c->name) . '</strong></td>';
@@ -337,14 +337,14 @@ class TTB_Admin_UI {
       echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm" title="Editar">✏️ Editar</a>';
 
       // Reenviar email
-      echo '<form method="post" style="margin:0">';
+      echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" style="margin:0">';
       wp_nonce_field('ttb_admin_resend');
       echo '<input type="hidden" name="client_id" value="' . (int)$c->id . '">
       <button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_admin_resend" value="1" title="Reenviar email">📧 Email</button>
       </form>';
 
       // Eliminar
-      echo '<form method="post" style="margin:0"
+      echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" style="margin:0"
                   onsubmit="return confirm(\'¿Eliminar a ' . esc_js($c->name) . '? Se borrarán también todas sus respuestas. Esta acción no se puede deshacer.\')">';
       wp_nonce_field('ttb_admin_delete_client');
       echo '<input type="hidden" name="client_id" value="' . (int)$c->id . '">
@@ -372,7 +372,7 @@ class TTB_Admin_UI {
     </tr></thead><tbody>';
 
     foreach ($clients as $c) {
-      $url    = esc_url(add_query_arg(['tab' => 'answers', 'client' => (int)$c->id], home_url('/briefing')));
+      $url    = esc_url(home_url('/briefing?tab=answers&client=' . (int)$c->id));
       $c_lang = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
       echo '<tr>';
       echo '<td><strong>' . esc_html($c->name) . '</strong></td>';
