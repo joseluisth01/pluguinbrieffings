@@ -14,6 +14,10 @@ $wp_load = dirname(__FILE__) . '/../../../wp-load.php';
 if (!file_exists($wp_load)) die('Error de configuración.');
 require_once $wp_load;
 
+// Ensure logger is available
+$logger_file = dirname(__FILE__) . '/includes/class-logger.php';
+if (file_exists($logger_file)) require_once $logger_file;
+
 // Solo aceptar POST (o GET para logout)
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -28,7 +32,18 @@ if ($method !== 'POST') {
   ttblh_redirect(home_url('/briefing'));
 }
 
+// Nonce (CSRF) check
+if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_login')) {
+  if (class_exists('TTB_Logger')) TTB_Logger::log('Login handler nonce failed');
+  ttblh_flash('error', 'Sesión inválida. Recarga y prueba otra vez.');
+  ttblh_redirect(home_url('/briefing'));
+}
+
 $u = sanitize_text_field(wp_unslash($_POST['username'] ?? ''));
+$p = (string)($_POST['password'] ?? '');
+if (class_exists('TTB_Logger')) TTB_Logger::log('Login handler attempt', ['username' => $u]);
+
+// NOTE: never log passwords
 $p = (string)($_POST['password'] ?? '');
 
 // Campos vacíos
@@ -45,8 +60,14 @@ $admin_user = (string)get_option('ttb_admin_user', 'tictac');
 $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
 
 if ($u === $admin_user) {
+  if (!$admin_hash) {
+    $admin_hash = password_hash($p, PASSWORD_DEFAULT);
+    update_option('ttb_admin_pass_hash', $admin_hash);
+    if (class_exists('TTB_Logger')) TTB_Logger::log('Admin hash was missing; regenerated from provided password (handler)');
+  }
   if ($admin_hash && password_verify($p, $admin_hash)) {
     ttblh_set_session('admin', 0);
+    if (class_exists('TTB_Logger')) TTB_Logger::log('Login handler success', ['role'=>'admin']);
     ttblh_redirect(home_url('/briefing'));
   }
   ttblh_flash('error', 'Contraseña incorrecta. Inténtalo de nuevo.');
@@ -63,6 +84,7 @@ $client = $wpdb->get_row($wpdb->prepare(
 if ($client) {
   if (password_verify($p, $client->pass_hash)) {
     ttblh_set_session('client', (int)$client->id);
+    if (class_exists('TTB_Logger')) TTB_Logger::log('Login handler success', ['role'=>'client','client_id'=>(int)$client->id]);
     ttblh_redirect(home_url('/briefing'));
   }
   ttblh_flash('error', 'Contraseña incorrecta. Inténtalo de nuevo.');

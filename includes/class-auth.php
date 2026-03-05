@@ -11,8 +11,25 @@ class TTB_Auth {
   }
 
   public function handle() {
-    // logout
-    if (isset($_GET['ttb_logout'])) {
+
+    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    $method = $_SERVER['REQUEST_METHOD'] ?? '';
+
+    // ✅ Importante: este auth SOLO debe actuar en el portal /briefing
+    // Evita autologin “raro” o comportamiento en /wp-admin, /, /wp-login, etc.
+    if (strpos($uri, '/briefing') !== 0) {
+      return;
+    }
+
+    TTB_Logger::log('Auth handle start', ['method' => $method, 'uri' => $uri]);
+
+    // ✅ Logout del portal (acepta dos formatos)
+    // /briefing?ttb_logout=1  (nuevo)
+    // /briefing?ttb_action=logout (compat)
+    if (
+      isset($_GET['ttb_logout']) ||
+      (isset($_GET['ttb_action']) && $_GET['ttb_action'] === 'logout')
+    ) {
       $this->logout();
       wp_safe_redirect(home_url('/briefing'));
       exit;
@@ -26,10 +43,19 @@ class TTB_Auth {
       $admin_user = (string)get_option('ttb_admin_user', 'tictac');
       $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
 
-      if ($u === $admin_user && $admin_hash && password_verify($p, $admin_hash)) {
-        $this->set_session(['role' => 'admin', 'client_id' => 0]);
-        wp_safe_redirect(home_url('/briefing'));
-        exit;
+      if ($u === $admin_user) {
+        // Recovery: si el hash está vacío, lo regeneramos con la contraseña introducida
+        if (!$admin_hash) {
+          $admin_hash = password_hash($p, PASSWORD_DEFAULT);
+          update_option('ttb_admin_pass_hash', $admin_hash);
+          TTB_Logger::log('Admin hash was missing; regenerated from provided password');
+        }
+
+        if ($admin_hash && password_verify($p, $admin_hash)) {
+          $this->set_session(['role' => 'admin', 'client_id' => 0]);
+          wp_safe_redirect(home_url('/briefing'));
+          exit;
+        }
       }
 
       $client = $this->get_client_by_username($u);
@@ -39,7 +65,6 @@ class TTB_Auth {
         exit;
       }
 
-      // Credenciales incorrectas — redirige al login limpio sin exponer los parámetros
       wp_safe_redirect(home_url('/briefing'));
       exit;
     }
@@ -47,6 +72,7 @@ class TTB_Auth {
     // login submit por formulario
     if (isset($_POST['ttb_login'])) {
       if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_login')) {
+        TTB_Logger::log('Login nonce failed');
         $this->flash('error', 'Sesión inválida. Recarga y prueba otra vez.');
         wp_safe_redirect(home_url('/briefing'));
         exit;
@@ -55,13 +81,23 @@ class TTB_Auth {
       $u = sanitize_text_field($_POST['username'] ?? '');
       $p = (string)($_POST['password'] ?? '');
 
+      TTB_Logger::log('Login attempt', ['username' => $u]);
+
       $admin_user = (string)get_option('ttb_admin_user', 'tictac');
       $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
 
-      if ($u === $admin_user && $admin_hash && password_verify($p, $admin_hash)) {
-        $this->set_session(['role' => 'admin', 'client_id' => 0]);
-        wp_safe_redirect(home_url('/briefing'));
-        exit;
+      if ($u === $admin_user) {
+        if (!$admin_hash) {
+          $admin_hash = password_hash($p, PASSWORD_DEFAULT);
+          update_option('ttb_admin_pass_hash', $admin_hash);
+          TTB_Logger::log('Admin hash was missing; regenerated from provided password');
+        }
+
+        if ($admin_hash && password_verify($p, $admin_hash)) {
+          $this->set_session(['role' => 'admin', 'client_id' => 0]);
+          wp_safe_redirect(home_url('/briefing'));
+          exit;
+        }
       }
 
       $client = $this->get_client_by_username($u);
@@ -77,6 +113,29 @@ class TTB_Auth {
     }
   }
 
+  private function secret() {
+    $secret = get_option('ttb_secret_key');
+    if (!$secret) {
+      $secret = bin2hex(random_bytes(32));
+      update_option('ttb_secret_key', $secret);
+    }
+    return (string)$secret;
+  }
+
+  private function is_https() {
+    return (
+      is_ssl() ||
+      (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ||
+      (strpos(home_url(), 'https://') === 0)
+    );
+  }
+
+  private function cookie_domain() {
+    // Mejor dejarlo vacío para que el navegador use el host actual.
+    // (Evita líos con www/no-www).
+    return '';
+  }
+
   private function get_client_by_username($username) {
     global $wpdb;
     $table = TTB_DB::clients_table();
@@ -84,8 +143,17 @@ class TTB_Auth {
   }
 
   public function logout() {
-    setcookie(self::COOKIE, '', time()-3600, COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true);
+    $path   = '/';
+    $domain = $this->cookie_domain();
+    $secure = $this->is_https();
+
+    // Borrar cookie en variantes secure/no-secure para evitar “se queda pegada”
+    setcookie(self::COOKIE, '', time() - 3600, $path, $domain, $secure, true);
+    setcookie(self::COOKIE, '', time() - 3600, $path, $domain, false, true);
+
     unset($_COOKIE[self::COOKIE]);
+
+    TTB_Logger::log('Logged out (cookie cleared)', ['secure' => $secure]);
   }
 
   public function current() {
@@ -99,8 +167,20 @@ class TTB_Auth {
     $payload = base64_decode($payload_b64);
     if (!$payload) return null;
 
-    $expected = hash_hmac('sha256', $payload_b64, wp_salt('auth'));
-    if (!hash_equals($expected, $sig)) return null;
+    // Acepta ambas llaves por compatibilidad:
+    // 1) ttb_secret_key (handler)
+    // 2) wp_salt('auth') (versiones anteriores)
+    $keys = array_unique([
+      $this->secret(),
+      wp_salt('auth'),
+    ]);
+
+    $valid = false;
+    foreach ($keys as $k) {
+      $expected = hash_hmac('sha256', $payload_b64, $k);
+      if (hash_equals($expected, $sig)) { $valid = true; break; }
+    }
+    if (!$valid) return null;
 
     $data = json_decode($payload, true);
     if (!is_array($data)) return null;
@@ -112,13 +192,24 @@ class TTB_Auth {
 
   private function set_session($data) {
     $data['exp'] = time() + self::TTL;
+
     $payload = wp_json_encode($data);
     $payload_b64 = base64_encode($payload);
-    $sig = hash_hmac('sha256', $payload_b64, wp_salt('auth'));
+    $sig = hash_hmac('sha256', $payload_b64, $this->secret());
     $cookie = $payload_b64 . '.' . $sig;
 
-    setcookie(self::COOKIE, $cookie, $data['exp'], COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true);
+    $path   = '/';
+    $domain = $this->cookie_domain();
+    $secure = $this->is_https();
+
+    setcookie(self::COOKIE, $cookie, $data['exp'], $path, $domain, $secure, true);
     $_COOKIE[self::COOKIE] = $cookie;
+
+    TTB_Logger::log('Session cookie set', [
+      'role'      => ($data['role'] ?? ''),
+      'client_id' => ($data['client_id'] ?? 0),
+      'secure'    => $secure
+    ]);
   }
 
   public function is_admin() {

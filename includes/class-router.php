@@ -33,9 +33,24 @@ class TTB_Router {
   public function render() {
     if (!$this->is_portal()) return;
 
-    // NOINDEX + no cache
+    // ✅ BLOQUEO DE CACHÉ: muy importante para que /briefing no se cachee "logueado"
+    if (!defined('DONOTCACHEPAGE'))   define('DONOTCACHEPAGE', true);
+    if (!defined('DONOTCACHEDB'))     define('DONOTCACHEDB', true);
+    if (!defined('DONOTCACHEOBJECT')) define('DONOTCACHEOBJECT', true);
+
+    // No cache headers (más agresivos que nocache_headers() solo)
     nocache_headers();
+
     header('X-Robots-Tag: noindex, nofollow, noarchive', true);
+
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true);
+    header('Cache-Control: post-check=0, pre-check=0', false);
+    header('Pragma: no-cache', true);
+    header('Expires: Wed, 11 Jan 1984 05:00:00 GMT', true);
+
+    // Ayuda a caches intermedias a variar por cookies
+    header('Vary: Cookie', false);
+
     add_filter('wp_robots', function ($robots) {
       $robots['noindex'] = true;
       $robots['nofollow'] = true;
