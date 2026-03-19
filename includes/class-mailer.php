@@ -74,6 +74,7 @@ class TTB_Mailer {
      TEMPLATE EMAIL ES
   ───────────────────────────────────────────── */
   private function tpl_access_es($name, $username, $password, $portal, $logo, $pink, $pills) {
+    $autologin_url = esc_url(add_query_arg(['ttb_u' => $username, 'ttb_p' => $password], $portal));
     return '
 <!DOCTYPE html>
 <html lang="es">
@@ -109,13 +110,6 @@ class TTB_Mailer {
               </p>
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td width="90" style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0">Enlace</td>
-                  <td style="padding:6px 0">
-                    <a href="' . $portal . '" target="_blank" rel="noopener"
-                       style="color:' . $pink . ';font-weight:700;font-size:14px;text-decoration:none">' . esc_html($portal) . ' →</a>
-                  </td>
-                </tr>
-                <tr>
                   <td style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0">Usuario</td>
                   <td style="padding:6px 0">
                     <code style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:4px 10px;font-size:14px;color:#1a1a2e;font-weight:700">' . esc_html($username) . '</code>
@@ -134,11 +128,11 @@ class TTB_Mailer {
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
           <tr>
             <td align="center">
-              <a href="' . $portal . '" target="_blank" rel="noopener"
+              <a href="' . $autologin_url . '" target="_blank" rel="noopener"
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
-                Ir a mi Briefing →
+                Acceder al Portal de Briefing →
               </a>
             </td>
           </tr>
@@ -179,6 +173,7 @@ class TTB_Mailer {
      TEMPLATE EMAIL EN
   ───────────────────────────────────────────── */
   private function tpl_access_en($name, $username, $password, $portal, $logo, $pink, $pills) {
+    $autologin_url = esc_url(add_query_arg(['ttb_u' => $username, 'ttb_p' => $password], $portal));
     return '
 <!DOCTYPE html>
 <html lang="en">
@@ -214,14 +209,7 @@ class TTB_Mailer {
               </p>
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td width="100" style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0">Portal link</td>
-                  <td style="padding:6px 0">
-                    <a href="' . $portal . '" target="_blank" rel="noopener"
-                       style="color:' . $pink . ';font-weight:700;font-size:14px;text-decoration:none">' . esc_html($portal) . ' →</a>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0">Username</td>
+                  <td width="100" style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0">Username</td>
                   <td style="padding:6px 0">
                     <code style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:4px 10px;font-size:14px;color:#1a1a2e;font-weight:700">' . esc_html($username) . '</code>
                   </td>
@@ -239,11 +227,11 @@ class TTB_Mailer {
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
           <tr>
             <td align="center">
-              <a href="' . $portal . '" target="_blank" rel="noopener"
+              <a href="' . $autologin_url . '" target="_blank" rel="noopener"
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
-                Go to my Briefing →
+                Access the Briefing Portal →
               </a>
             </td>
           </tr>
