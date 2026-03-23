@@ -11,8 +11,12 @@ class TTB_Activator {
     flush_rewrite_rules();
     // Tablas del módulo Revisiones Diseños (incluye tabla audit)
     TTB_WebRev_DB::create_tables();
-    // Programar cron
+    // Programar cron Revisiones Diseños
     TTB_WebRev_Cron::register();
+    // Tablas del módulo Revisiones Prog. Web
+    TTB_WebProg_DB::create_tables();
+    // Programar cron Revisiones Prog. Web
+    TTB_WebProg_Cron::register();
   }
 
   private static function create_tables() {

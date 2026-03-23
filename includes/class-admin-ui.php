@@ -38,7 +38,7 @@ class TTB_Admin_UI {
       echo '<div class="ttb-alert ' . $cls . '">' . esc_html($f['text']) . '</div>';
     }
 
-    // ── Pestañas principales ──────────────────────────
+    // ── Pestañas principales ──────────────────────────────────
     echo '<div class="ttb-tabs ttb-tabs--main">';
     self::section_link('briefings',       'Briefings',             $section);
     self::section_link('revisiones-dis',  'Revisiones Diseños',    $section);
@@ -46,11 +46,11 @@ class TTB_Admin_UI {
     self::section_link('revisiones-web',  'Revisiones Prog. Web',  $section);
     echo '</div>';
 
-    // ── Contenido de cada sección ─────────────────────
+    // ── Contenido de cada sección ─────────────────────────────
     switch ($section) {
 
       case 'briefings':
-        // Sub-pestañas internas — Clientes y Respuestas primero, JSON al final
+        // Sub-pestañas internas
         echo '<div class="ttb-tabs">';
         self::tab_link('clients',  'Clientes',       $tab, $section);
         self::tab_link('answers',  'Respuestas',     $tab, $section);
@@ -73,7 +73,7 @@ class TTB_Admin_UI {
         break;
 
       case 'revisiones-web':
-        echo '<div class="ttb-card"><p class="ttb-muted">Sección <strong>Revisiones Prog. Web</strong> — próximamente.</p></div>';
+        TTB_WebProg_Admin::render();
         break;
     }
 

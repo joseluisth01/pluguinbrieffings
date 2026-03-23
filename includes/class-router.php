@@ -66,10 +66,17 @@ class TTB_Router {
       return $robots;
     });
 
-    // ── ¿Es un magic link de revisión web? ──────────────────
+    // ── ¿Es un magic link de revisión Diseños? ──────────────
     $webrev_token = sanitize_text_field($_GET['webrev'] ?? '');
     if ($webrev_token) {
       include TTB_PATH . 'templates/portal-shell-webrev.php';
+      exit;
+    }
+
+    // ── ¿Es un magic link de revisión Prog. Web? ────────────
+    $webprog_token = sanitize_text_field($_GET['webprog'] ?? '');
+    if ($webprog_token) {
+      include TTB_PATH . 'templates/portal-shell-webprog.php';
       exit;
     }
 
