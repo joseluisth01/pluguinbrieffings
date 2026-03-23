@@ -33,14 +33,12 @@ class TTB_Router {
   public function render() {
     if (!$this->is_portal()) return;
 
-    // Ignorar HEAD requests completamente
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'HEAD') {
       status_header(200);
       nocache_headers();
       exit;
     }
 
-    // BLOQUEO DE CACHÉ
     if (!defined('DONOTCACHEPAGE'))   define('DONOTCACHEPAGE', true);
     if (!defined('DONOTCACHEDB'))     define('DONOTCACHEDB', true);
     if (!defined('DONOTCACHEOBJECT')) define('DONOTCACHEOBJECT', true);
@@ -67,6 +65,13 @@ class TTB_Router {
       $robots['noarchive'] = true;
       return $robots;
     });
+
+    // ── ¿Es un magic link de revisión web? ──────────────────
+    $webrev_token = sanitize_text_field($_GET['webrev'] ?? '');
+    if ($webrev_token) {
+      include TTB_PATH . 'templates/portal-shell-webrev.php';
+      exit;
+    }
 
     include TTB_PATH . 'templates/portal-shell.php';
     exit;

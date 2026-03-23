@@ -13,14 +13,18 @@ class TTB_Admin_UI {
       return;
     }
 
-    $tab = sanitize_text_field($_GET['tab'] ?? 'forms');
+    // Sección principal
+    $section = sanitize_text_field($_GET['section'] ?? 'briefings');
+    $tab     = sanitize_text_field($_GET['tab']     ?? 'clients');
 
-    // Procesar acciones POST — devuelven el tab donde renderizar
-    $tab = self::handle_forms_save($tab);
-    $tab = self::handle_client_create($tab);
-    $tab = self::handle_client_edit($tab);
-    $tab = self::handle_client_delete($tab);
-    $tab = self::handle_resend_email($tab);
+    // Procesar acciones POST — solo en sección briefings
+    if ($section === 'briefings') {
+      $tab = self::handle_forms_save($tab);
+      $tab = self::handle_client_create($tab);
+      $tab = self::handle_client_edit($tab);
+      $tab = self::handle_client_delete($tab);
+      $tab = self::handle_resend_email($tab);
+    }
 
     echo '<div class="ttb-container">';
     echo '<div class="ttb-card ttb-card--header">';
@@ -34,24 +38,58 @@ class TTB_Admin_UI {
       echo '<div class="ttb-alert ' . $cls . '">' . esc_html($f['text']) . '</div>';
     }
 
-    echo '<div class="ttb-tabs">';
-    self::tab_link('forms',    'Formularios ES', $tab);
-    self::tab_link('forms_en', 'Formularios EN', $tab);
-    self::tab_link('clients',  'Clientes',       $tab);
-    self::tab_link('answers',  'Respuestas',     $tab);
+    // ── Pestañas principales ──────────────────────────
+    echo '<div class="ttb-tabs ttb-tabs--main">';
+    self::section_link('briefings',       'Briefings',             $section);
+    self::section_link('revisiones-dis',  'Revisiones Diseños',    $section);
+    self::section_link('redes-sociales',  'Redes Sociales',        $section);
+    self::section_link('revisiones-web',  'Revisiones Prog. Web',  $section);
     echo '</div>';
 
-    if ($tab === 'clients')       self::render_clients();
-    elseif ($tab === 'answers')   self::render_answers();
-    elseif ($tab === 'forms_en')  self::render_forms('en');
-    else                          self::render_forms('es');
+    // ── Contenido de cada sección ─────────────────────
+    switch ($section) {
+
+      case 'briefings':
+        // Sub-pestañas internas — Clientes y Respuestas primero, JSON al final
+        echo '<div class="ttb-tabs">';
+        self::tab_link('clients',  'Clientes',       $tab, $section);
+        self::tab_link('answers',  'Respuestas',     $tab, $section);
+        self::tab_link('forms',    'Formularios ES', $tab, $section);
+        self::tab_link('forms_en', 'Formularios EN', $tab, $section);
+        echo '</div>';
+
+        if ($tab === 'answers')       self::render_answers();
+        elseif ($tab === 'forms')     self::render_forms('es');
+        elseif ($tab === 'forms_en')  self::render_forms('en');
+        else                          self::render_clients();
+        break;
+
+      case 'revisiones-dis':
+        TTB_WebRev_Admin::render();
+        break;
+
+      case 'redes-sociales':
+        echo '<div class="ttb-card"><p class="ttb-muted">Sección <strong>Redes Sociales</strong> — próximamente.</p></div>';
+        break;
+
+      case 'revisiones-web':
+        echo '<div class="ttb-card"><p class="ttb-muted">Sección <strong>Revisiones Prog. Web</strong> — próximamente.</p></div>';
+        break;
+    }
 
     echo '</div>';
   }
 
-  /* ── Tabs ── */
-  private static function tab_link($key, $label, $active) {
-    $url = esc_url(home_url('/briefing?tab=' . $key));
+  /* ── Sección principal ── */
+  private static function section_link($key, $label, $active) {
+    $url = esc_url(home_url('/briefing?section=' . $key));
+    $cls = ($key === $active) ? 'ttb-tab ttb-tab--main ttb-tab--active' : 'ttb-tab ttb-tab--main';
+    echo '<a class="' . $cls . '" href="' . $url . '">' . esc_html($label) . '</a>';
+  }
+
+  /* ── Sub-pestaña dentro de una sección ── */
+  private static function tab_link($key, $label, $active, $section = 'briefings') {
+    $url = esc_url(home_url('/briefing?section=' . $section . '&tab=' . $key));
     $cls = ($key === $active) ? 'ttb-tab ttb-tab--active' : 'ttb-tab';
     echo '<a class="' . $cls . '" href="' . $url . '">' . esc_html($label) . '</a>';
   }
@@ -209,7 +247,7 @@ class TTB_Admin_UI {
     echo '<div class="ttb-card"><h3>Formularios — ' . esc_html($lang_label) . ' (JSON)</h3>';
     echo '<p class="ttb-muted">Edita campos por servicio. Formato: lista de objetos con id/label/type/required/options.</p></div>';
 
-    echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=' . ($lang === 'en' ? 'forms_en' : 'forms'))) . '" class="ttb-card">';
+    echo '<form method="post" action="' . esc_url(home_url('/briefing?section=briefings&tab=' . ($lang === 'en' ? 'forms_en' : 'forms'))) . '" class="ttb-card">';
     wp_nonce_field('ttb_admin_forms');
     echo '<input type="hidden" name="ttb_form_lang" value="' . esc_attr($lang) . '">';
     echo '<div class="ttb-grid2">';
@@ -245,7 +283,7 @@ class TTB_Admin_UI {
 
     /* ── Formulario crear ── */
     echo '<div class="ttb-card"><h3>Crear cliente</h3></div>';
-    echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" class="ttb-card">';
+    echo '<form method="post" action="' . esc_url(home_url('/briefing?section=briefings&tab=clients')) . '" class="ttb-card">';
     wp_nonce_field('ttb_admin_clients');
     echo '<div class="ttb-grid2">';
     echo '<div><label>Nombre</label><input class="ttb-input" type="text" name="client_name" required></div>';
@@ -271,13 +309,13 @@ class TTB_Admin_UI {
       $edit_services = json_decode((string)$edit_c->services, true);
       if (!is_array($edit_services)) $edit_services = [];
       $edit_lang  = in_array($edit_c->lang ?? '', ['es', 'en'], true) ? $edit_c->lang : 'es';
-      $cancel_url = esc_url(home_url('/briefing?tab=clients'));
+      $cancel_url = esc_url(home_url('/briefing?section=briefings&tab=clients'));
 
       echo '<div class="ttb-modal-overlay ttb-edit-modal-overlay" id="ttbEditModal" role="dialog" aria-modal="true" aria-labelledby="ttbEditTitle">';
       echo '<div class="ttb-modal ttb-edit-modal">';
       echo '<h3 class="ttb-edit-modal__title" id="ttbEditTitle">✏️ Editar cliente</h3>';
 
-      echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" class="ttb-formgrid">';
+      echo '<form method="post" action="' . esc_url(home_url('/briefing?section=briefings&tab=clients')) . '" class="ttb-formgrid">';
       wp_nonce_field('ttb_admin_edit_client');
       echo '<input type="hidden" name="client_id" value="' . (int)$edit_c->id . '">';
 
@@ -320,7 +358,7 @@ class TTB_Admin_UI {
       $sv = json_decode((string)$c->services, true);
       if (!is_array($sv)) $sv = [];
       $c_lang   = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
-      $edit_url = esc_url(home_url('/briefing?tab=clients&edit_client=' . (int)$c->id));
+      $edit_url = esc_url(home_url('/briefing?section=briefings&tab=clients&edit_client=' . (int)$c->id));
 
       echo '<tr>';
       echo '<td><strong>' . esc_html($c->name) . '</strong></td>';
@@ -341,14 +379,14 @@ class TTB_Admin_UI {
       echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm" title="Editar">✏️ Editar</a>';
 
       // Reenviar email
-      echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" style="margin:0">';
+      echo '<form method="post" action="' . esc_url(home_url('/briefing?section=briefings&tab=clients')) . '" style="margin:0">';
       wp_nonce_field('ttb_admin_resend');
       echo '<input type="hidden" name="client_id" value="' . (int)$c->id . '">
       <button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_admin_resend" value="1" title="Reenviar email">📧 Email</button>
       </form>';
 
       // Eliminar
-      echo '<form method="post" action="' . esc_url(home_url('/briefing?tab=clients')) . '" style="margin:0"
+      echo '<form method="post" action="' . esc_url(home_url('/briefing?section=briefings&tab=clients')) . '" style="margin:0"
                   onsubmit="return confirm(\'¿Eliminar a ' . esc_js($c->name) . '? Se borrarán también todas sus respuestas. Esta acción no se puede deshacer.\')">';
       wp_nonce_field('ttb_admin_delete_client');
       echo '<input type="hidden" name="client_id" value="' . (int)$c->id . '">
@@ -376,7 +414,7 @@ class TTB_Admin_UI {
     </tr></thead><tbody>';
 
     foreach ($clients as $c) {
-      $url    = esc_url(home_url('/briefing?tab=answers&client=' . (int)$c->id));
+      $url    = esc_url(home_url('/briefing?section=briefings&tab=answers&client=' . (int)$c->id));
       $c_lang = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
       echo '<tr>';
       echo '<td><strong>' . esc_html($c->name) . '</strong></td>';

@@ -9,6 +9,10 @@ class TTB_Activator {
     self::seed_forms();
     (new TTB_Router())->add_rewrite();
     flush_rewrite_rules();
+    // Tablas del módulo Revisiones Web
+    TTB_WebRev_DB::create_tables();
+    // Programar cron
+    TTB_WebRev_Cron::register();
   }
 
   private static function create_tables() {
@@ -50,7 +54,6 @@ class TTB_Activator {
     dbDelta($sql1);
     dbDelta($sql2);
 
-    // Migración: añadir columna lang si ya existe la tabla sin ella
     $col = $wpdb->get_results("SHOW COLUMNS FROM $clients LIKE 'lang'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE $clients ADD COLUMN lang VARCHAR(5) NOT NULL DEFAULT 'es' AFTER services");
@@ -68,12 +71,10 @@ class TTB_Activator {
   }
 
   private static function seed_forms() {
-    // ES
     if (!get_option('ttb_form_design')) update_option('ttb_form_design', wp_json_encode(self::default_form_design(),    JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
     if (!get_option('ttb_form_social')) update_option('ttb_form_social', wp_json_encode(self::default_form_social(),    JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
     if (!get_option('ttb_form_seo'))    update_option('ttb_form_seo',    wp_json_encode(self::default_form_seo(),       JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
     if (!get_option('ttb_form_web'))    update_option('ttb_form_web',    wp_json_encode(self::default_form_web(),       JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
-    // EN
     if (!get_option('ttb_form_design_en')) update_option('ttb_form_design_en', wp_json_encode(self::default_form_design_en(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
     if (!get_option('ttb_form_social_en')) update_option('ttb_form_social_en', wp_json_encode(self::default_form_social_en(), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
     if (!get_option('ttb_form_seo_en'))    update_option('ttb_form_seo_en',    wp_json_encode(self::default_form_seo_en(),    JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
@@ -86,9 +87,6 @@ class TTB_Activator {
     return $field;
   }
 
-  /* ═══════════════════════════════
-     FORMULARIOS ESPAÑOL
-  ═══════════════════════════════ */
   private static function default_form_design() {
     return [
       self::f('brand_name',    'Nombre de la marca/empresa',          'text',     true),
@@ -165,9 +163,6 @@ class TTB_Activator {
     ];
   }
 
-  /* ═══════════════════════════════
-     FORMULARIOS INGLÉS
-  ═══════════════════════════════ */
   private static function default_form_design_en() {
     return [
       self::f('brand_name',    'Brand / company name',               'text',     true),
