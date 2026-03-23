@@ -18,6 +18,9 @@ class TTB_WebRev_Client {
         <h2>Enlace no válido</h2>
         <p class="ttb-muted">Este enlace no existe o ha caducado. Contacta con TicTac Comunicación.</p>
       </div>';
+
+      // Registrar intento con token inválido
+      TTB_WebRev_DB::log(null, 'invalid_token_access', 'client', ['token_partial' => substr($token, 0, 8) . '…']);
       return;
     }
 
@@ -26,6 +29,11 @@ class TTB_WebRev_Client {
       self::handle_submit($project);
       return;
     }
+
+    // ── Registrar visita del cliente ──
+    TTB_WebRev_DB::log($project->id, 'client_view', 'client', [
+      'status' => $project->status,
+    ]);
 
     $accepted = ($project->status === 'accepted');
 
@@ -57,7 +65,7 @@ class TTB_WebRev_Client {
 
       <?php else: ?>
 
-        <!-- Preview del diseño — siempre tarjeta con botón (Figma bloquea iframes) -->
+        <!-- Preview del diseño -->
         <?php $is_figma = strpos($project->figma_url, 'figma.com') !== false; ?>
         <div class="ttb-card">
           <h3 style="margin:0 0 14px">🎨 Tu diseño</h3>
@@ -74,7 +82,7 @@ class TTB_WebRev_Client {
                 <path d="M0 47.5C0 44.9804 1.00089 42.5641 2.78249 40.7825C4.56408 39.0009 6.98044 38 9.5 38H19V47.5C19 50.0196 17.9991 52.4359 16.2175 54.2175C14.4359 55.9991 12.0196 57 9.5 57C6.98044 57 4.56408 55.9991 2.78249 54.2175C1.00089 52.4359 0 50.0196 0 47.5Z" fill="#0ACF83"/>
                 <path d="M19 0V19H28.5C31.0196 19 33.4359 17.9991 35.2175 16.2175C36.9991 14.4359 38 12.0196 38 9.5C38 6.98044 36.9991 4.56408 35.2175 2.78249C33.4359 1.00089 31.0196 0 28.5 0H19Z" fill="#FF7262"/>
                 <path d="M0 9.5C0 12.0196 1.00089 14.4359 2.78249 16.2175C4.56408 17.9991 6.98044 19 9.5 19H19V0H9.5C6.98044 0 4.56408 1.00089 2.78249 2.78249C1.00089 4.56408 0 6.98044 0 9.5Z" fill="#F24E1E"/>
-                <path d="M0 28.5C0 31.0196 1.00089 33.4359 2.78249 35.2175C4.56408 36.9991 6.98044 38 9.5 38H19V19H9.5C6.98044 19 4.56408 20.0009 2.78249 21.7825C1.00089 23.5641 0 25.9804 0 28.5Z" fill="#A259FF"/>
+                <path d="M0 28.5C0 31.0196 1.00089 33.4359 2.78249 35.2175C4.56408 17.9991 6.98044 38 9.5 38H19V19H9.5C6.98044 19 4.56408 20.0009 2.78249 21.7825C1.00089 23.5641 0 25.9804 0 28.5Z" fill="#A259FF"/>
               </svg>
               <p style="margin:0 0 8px;font-size:20px;font-weight:900;color:var(--ttb-text)">Tu diseño está en Figma</p>
               <p style="margin:0 0 28px;font-size:15px;color:var(--ttb-muted);line-height:1.6">
@@ -109,7 +117,6 @@ class TTB_WebRev_Client {
           <h3 style="margin:0 0 6px">¿Qué quieres hacer?</h3>
           <p class="ttb-muted" style="margin:0 0 20px">Ronda actual: <strong>#<?php echo $next_round; ?></strong></p>
 
-          <!-- Tabs de acción -->
           <div class="ttbwr-action-tabs" style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
             <button class="ttb-btn ttb-btn--ghost ttbwr-tab-btn ttbwr-tab-btn--active" data-tab="accept" type="button">
               ✅ Aceptar diseño
@@ -149,13 +156,10 @@ class TTB_WebRev_Client {
               <?php wp_nonce_field('ttb_webrev_changes_' . $token); ?>
               <input type="hidden" name="ttb_webrev_action" value="changes">
               <input type="hidden" name="ttb_webrev_token" value="<?php echo esc_attr($token); ?>">
-              <!-- Los bloques se serializan aquí antes de enviar -->
               <input type="hidden" name="ttbwr_blocks_json" id="ttbwr_blocks_json" value="">
 
-              <!-- Contenedor de bloques -->
               <div id="ttbwr-blocks-container"></div>
 
-              <!-- Botones para añadir bloques -->
               <div style="display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 24px">
                 <button type="button" class="ttb-btn ttb-btn--ghost" id="ttbwr-add-text">
                   ✏️ Añadir bloque de texto
@@ -184,7 +188,6 @@ class TTB_WebRev_Client {
             <?php foreach ($revisions as $rev): ?>
               <?php
                 $is_accepted = $rev->type === 'accept';
-                $images = json_decode((string)$rev->images, true);
                 $bg  = $is_accepted ? '#ecfdf5' : '#fffbeb';
                 $bc  = $is_accepted ? '#6ee7b7' : '#fcd34d';
                 $ico = $is_accepted ? '✅' : '✏️';
@@ -197,7 +200,6 @@ class TTB_WebRev_Client {
                 </div>
                 <?php if ($rev->message || $rev->images): ?>
                   <?php
-                    // Intentar parsear como bloques nuevos
                     $blocks = json_decode((string)$rev->images, true);
                     $is_blocks = is_array($blocks) && !empty($blocks) && isset($blocks[0]['type']);
                   ?>
@@ -227,7 +229,6 @@ class TTB_WebRev_Client {
                       <?php endforeach; ?>
                     </div>
                   <?php else: ?>
-                    <?php /* Formato antiguo: texto plano + array de URLs */ ?>
                     <?php if ($rev->message): ?>
                       <p style="margin:10px 0 0;font-size:14px;color:var(--ttb-text);line-height:1.6;white-space:pre-line"><?php echo nl2br(esc_html($rev->message)); ?></p>
                     <?php endif; ?>
@@ -254,14 +255,11 @@ class TTB_WebRev_Client {
     </div>
 
     <style>
-    /* ── Tabs de acción ── */
     .ttbwr-tab-btn--active {
       background: rgba(215,33,115,.10) !important;
       border-color: rgba(215,33,115,.35) !important;
       color: var(--ttb-pink) !important;
     }
-
-    /* ── Bloques de cambio ── */
     .ttbwr-block {
       border: 1.5px solid var(--ttb-border);
       border-radius: 14px;
@@ -271,7 +269,6 @@ class TTB_WebRev_Client {
       transition: box-shadow .2s;
     }
     .ttbwr-block:focus-within { box-shadow: 0 0 0 3px rgba(215,33,115,.12); border-color: rgba(215,33,115,.4); }
-
     .ttbwr-block-header {
       display: flex;
       align-items: center;
@@ -281,124 +278,53 @@ class TTB_WebRev_Client {
       border-bottom: 1px solid var(--ttb-border);
       gap: 8px;
     }
-    .ttbwr-block-label {
-      font-size: 12px;
-      font-weight: 900;
-      color: var(--ttb-muted);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
+    .ttbwr-block-label { font-size: 12px; font-weight: 900; color: var(--ttb-muted); text-transform: uppercase; letter-spacing: .06em; }
     .ttbwr-block-actions { display: flex; gap: 6px; }
     .ttbwr-block-btn {
-      background: none;
-      border: 1px solid var(--ttb-border);
-      border-radius: 8px;
-      padding: 4px 8px;
-      font-size: 13px;
-      cursor: pointer;
-      color: var(--ttb-muted);
+      background: none; border: 1px solid var(--ttb-border); border-radius: 8px;
+      padding: 4px 8px; font-size: 13px; cursor: pointer; color: var(--ttb-muted);
       transition: background .15s, color .15s;
     }
     .ttbwr-block-btn:hover { background: #f0f0f0; color: var(--ttb-text); }
     .ttbwr-block-btn--delete:hover { background: #fff1f2; color: #e11d48; border-color: #fecdd3; }
-
-    /* ── WYSIWYG toolbar ── */
     .ttbwr-wysiwyg-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 2px;
-      padding: 8px 10px;
-      background: #f9fafb;
-      border-bottom: 1px solid var(--ttb-border);
+      display: flex; flex-wrap: wrap; gap: 2px;
+      padding: 8px 10px; background: #f9fafb; border-bottom: 1px solid var(--ttb-border);
     }
     .ttbwr-wysiwyg-bar button {
-      background: none;
-      border: 1px solid transparent;
-      border-radius: 6px;
-      padding: 4px 8px;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      color: var(--ttb-text);
-      line-height: 1.4;
-      min-width: 28px;
+      background: none; border: 1px solid transparent; border-radius: 6px;
+      padding: 4px 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+      color: var(--ttb-text); line-height: 1.4; min-width: 28px;
       transition: background .12s, border-color .12s;
     }
     .ttbwr-wysiwyg-bar button:hover { background: #e5e7eb; border-color: #d1d5db; }
     .ttbwr-wysiwyg-bar button.active { background: rgba(215,33,115,.12); border-color: rgba(215,33,115,.3); color: var(--ttb-pink); }
     .ttbwr-wysiwyg-bar .ttbwr-sep { width: 1px; background: var(--ttb-border); margin: 2px 4px; align-self: stretch; }
-
     .ttbwr-editor {
-      min-height: 120px;
-      padding: 14px 16px;
-      outline: none;
-      font-size: 15px;
-      line-height: 1.7;
-      color: var(--ttb-text);
+      min-height: 120px; padding: 14px 16px; outline: none;
+      font-size: 15px; line-height: 1.7; color: var(--ttb-text);
     }
-    .ttbwr-editor:empty::before {
-      content: attr(data-placeholder);
-      color: #9ca3af;
-      pointer-events: none;
-    }
+    .ttbwr-editor:empty::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
     .ttbwr-editor ul, .ttbwr-editor ol { padding-left: 22px; margin: 6px 0; }
-    .ttbwr-editor blockquote {
-      border-left: 3px solid var(--ttb-pink);
-      margin: 8px 0;
-      padding: 4px 12px;
-      color: var(--ttb-muted);
-      font-style: italic;
-    }
-
-    /* ── Bloque imagen ── */
+    .ttbwr-editor blockquote { border-left: 3px solid var(--ttb-pink); margin: 8px 0; padding: 4px 12px; color: var(--ttb-muted); font-style: italic; }
     .ttbwr-img-block { padding: 14px 16px; }
     .ttbwr-img-dropzone {
-      border: 2px dashed var(--ttb-border);
-      border-radius: 12px;
-      padding: 28px 20px;
-      text-align: center;
-      cursor: pointer;
-      background: #fafafa;
+      border: 2px dashed var(--ttb-border); border-radius: 12px; padding: 28px 20px;
+      text-align: center; cursor: pointer; background: #fafafa; margin-bottom: 12px;
       transition: border-color .2s, background .2s;
-      margin-bottom: 12px;
     }
-    .ttbwr-img-dropzone:hover, .ttbwr-img-dropzone.dragover {
-      border-color: var(--ttb-pink);
-      background: rgba(215,33,115,.03);
-    }
-    .ttbwr-img-preview {
-      position: relative;
-      display: inline-block;
-      margin-bottom: 12px;
-    }
-    .ttbwr-img-preview img {
-      max-width: 100%;
-      max-height: 280px;
-      border-radius: 10px;
-      border: 1px solid var(--ttb-border);
-      display: block;
-    }
+    .ttbwr-img-dropzone:hover, .ttbwr-img-dropzone.dragover { border-color: var(--ttb-pink); background: rgba(215,33,115,.03); }
+    .ttbwr-img-preview { position: relative; display: inline-block; margin-bottom: 12px; }
+    .ttbwr-img-preview img { max-width: 100%; max-height: 280px; border-radius: 10px; border: 1px solid var(--ttb-border); display: block; }
     .ttbwr-img-preview-remove {
-      position: absolute;
-      top: -8px; right: -8px;
-      background: #e11d48; color: #fff;
-      border: none; border-radius: 50%;
-      width: 22px; height: 22px;
-      font-size: 12px; font-weight: 900;
-      cursor: pointer; line-height: 1;
+      position: absolute; top: -8px; right: -8px;
+      background: #e11d48; color: #fff; border: none; border-radius: 50%;
+      width: 22px; height: 22px; font-size: 12px; font-weight: 900; cursor: pointer; line-height: 1;
     }
     .ttbwr-img-caption {
-      width: 100%;
-      border: 1px solid var(--ttb-border);
-      border-radius: 10px;
-      padding: 10px 12px;
-      font-size: 14px;
-      line-height: 1.5;
-      resize: vertical;
-      min-height: 72px;
-      font-family: inherit;
-      color: var(--ttb-text);
-      outline: none;
+      width: 100%; border: 1px solid var(--ttb-border); border-radius: 10px;
+      padding: 10px 12px; font-size: 14px; line-height: 1.5; resize: vertical;
+      min-height: 72px; font-family: inherit; color: var(--ttb-text); outline: none;
       transition: border-color .2s, box-shadow .2s;
     }
     .ttbwr-img-caption:focus { border-color: var(--ttb-pink); box-shadow: 0 0 0 3px rgba(215,33,115,.10); }
@@ -410,7 +336,6 @@ class TTB_WebRev_Client {
       var MAX_FILES = <?php echo (int)get_option('ttb_webrev_max_files', 10); ?>;
       var blockCount = 0;
 
-      // ── Tabs de acción ──────────────────────────────
       document.querySelectorAll('.ttbwr-tab-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
           var target = btn.getAttribute('data-tab');
@@ -421,17 +346,9 @@ class TTB_WebRev_Client {
         });
       });
 
-      // ── Añadir bloque de texto ───────────────────────
-      document.getElementById('ttbwr-add-text').addEventListener('click', function(){
-        addTextBlock();
-      });
+      document.getElementById('ttbwr-add-text').addEventListener('click', function(){ addTextBlock(); });
+      document.getElementById('ttbwr-add-image').addEventListener('click', function(){ addImageBlock(); });
 
-      // ── Añadir bloque de imagen ──────────────────────
-      document.getElementById('ttbwr-add-image').addEventListener('click', function(){
-        addImageBlock();
-      });
-
-      // ── Bloque de texto (WYSIWYG) ────────────────────
       function addTextBlock(initialHtml) {
         blockCount++;
         var id = 'ttbwr-block-' + blockCount;
@@ -449,26 +366,24 @@ class TTB_WebRev_Client {
           + '</div>'
           + '</div>'
           + '<div class="ttbwr-wysiwyg-bar">'
-          + '<button type="button" data-cmd="bold" title="Negrita"><b>N</b></button>'
-          + '<button type="button" data-cmd="italic" title="Cursiva"><i>C</i></button>'
-          + '<button type="button" data-cmd="underline" title="Subrayado"><u>S</u></button>'
+          + '<button type="button" data-cmd="bold"><b>N</b></button>'
+          + '<button type="button" data-cmd="italic"><i>C</i></button>'
+          + '<button type="button" data-cmd="underline"><u>S</u></button>'
           + '<span class="ttbwr-sep"></span>'
-          + '<button type="button" data-cmd="insertUnorderedList" title="Lista">• Lista</button>'
-          + '<button type="button" data-cmd="insertOrderedList" title="Lista numerada">1. Lista</button>'
+          + '<button type="button" data-cmd="insertUnorderedList">• Lista</button>'
+          + '<button type="button" data-cmd="insertOrderedList">1. Lista</button>'
           + '<span class="ttbwr-sep"></span>'
-          + '<button type="button" data-cmd="formatBlock|<blockquote>" title="Cita">❝ Cita</button>'
-          + '<button type="button" data-cmd="formatBlock|<p>" title="Texto normal">¶ Normal</button>'
+          + '<button type="button" data-cmd="formatBlock|<blockquote>">❝ Cita</button>'
+          + '<button type="button" data-cmd="formatBlock|<p>">¶ Normal</button>'
           + '<span class="ttbwr-sep"></span>'
-          + '<button type="button" data-cmd="removeFormat" title="Quitar formato">✕ Formato</button>'
+          + '<button type="button" data-cmd="removeFormat">✕ Formato</button>'
           + '</div>'
           + '<div class="ttbwr-editor" contenteditable="true" data-placeholder="Escribe aquí los cambios que necesitas con todo el detalle que quieras..."></div>';
 
         getContainer().appendChild(div);
-
         var editor = div.querySelector('.ttbwr-editor');
         if (initialHtml) editor.innerHTML = initialHtml;
 
-        // Toolbar
         div.querySelectorAll('.ttbwr-wysiwyg-bar button').forEach(function(btn){
           btn.addEventListener('mousedown', function(e){
             e.preventDefault();
@@ -483,7 +398,6 @@ class TTB_WebRev_Client {
           });
         });
 
-        // Actualizar estado activo en toolbar
         editor.addEventListener('keyup', updateToolbar);
         editor.addEventListener('mouseup', updateToolbar);
         function updateToolbar() {
@@ -493,12 +407,10 @@ class TTB_WebRev_Client {
           });
         }
 
-        // Acciones del bloque
         bindBlockActions(div);
         editor.focus();
       }
 
-      // ── Bloque de imagen + comentario ───────────────
       function addImageBlock(initialSrc, initialCaption) {
         blockCount++;
         var id = 'ttbwr-block-' + blockCount;
@@ -531,14 +443,9 @@ class TTB_WebRev_Client {
         var input   = div.querySelector('input[type=file]');
         var caption = div.querySelector('.ttbwr-img-caption');
 
-        if (initialSrc) {
-          showPreview(div, dz, initialSrc);
-        }
-        if (initialCaption) {
-          caption.value = initialCaption;
-        }
+        if (initialSrc)     showPreview(div, dz, initialSrc);
+        if (initialCaption) caption.value = initialCaption;
 
-        // Click / drag
         dz.addEventListener('click', function(){ input.click(); });
         dz.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' ') input.click(); });
         dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('dragover'); });
@@ -573,33 +480,26 @@ class TTB_WebRev_Client {
         dz.style.display = 'none';
         var existing = block.querySelector('.ttbwr-img-preview');
         if (existing) existing.remove();
-
         var wrap = document.createElement('div');
         wrap.className = 'ttbwr-img-preview';
         var img = document.createElement('img');
         img.src = src;
         var rm = document.createElement('button');
-        rm.type = 'button';
-        rm.className = 'ttbwr-img-preview-remove';
-        rm.textContent = '✕';
-        rm.title = 'Quitar imagen';
+        rm.type = 'button'; rm.className = 'ttbwr-img-preview-remove'; rm.textContent = '✕'; rm.title = 'Quitar imagen';
         rm.addEventListener('click', function(){
           wrap.remove();
           block.removeAttribute('data-file-dataurl');
           block.removeAttribute('data-file-name');
           dz.style.display = '';
         });
-        wrap.appendChild(img);
-        wrap.appendChild(rm);
+        wrap.appendChild(img); wrap.appendChild(rm);
         block.querySelector('.ttbwr-img-block').insertBefore(wrap, block.querySelector('.ttbwr-img-caption'));
       }
 
-      // ── Acciones de bloque (mover / eliminar) ────────
       function bindBlockActions(block) {
         block.querySelector('[data-delete]').addEventListener('click', function(){
           if (getContainer().querySelectorAll('.ttbwr-block').length <= 1) {
-            alert('Debe haber al menos un bloque de cambio.');
-            return;
+            alert('Debe haber al menos un bloque de cambio.'); return;
           }
           block.remove();
         });
@@ -613,27 +513,22 @@ class TTB_WebRev_Client {
         });
       }
 
-      function getContainer() {
-        return document.getElementById('ttbwr-blocks-container');
-      }
+      function getContainer() { return document.getElementById('ttbwr-blocks-container'); }
 
-      // ── Inicializar con un bloque de texto vacío ─────
       addTextBlock();
 
-      // ── Serializar bloques antes de enviar ───────────
       document.getElementById('ttbwr-changes-form').addEventListener('submit', function(e){
         e.preventDefault();
-
         var blocks = [];
-        var imageFiles = []; // { blockIndex, file }
+        var imageFiles = [];
         var container  = getContainer();
         var blockEls   = container.querySelectorAll('.ttbwr-block');
-
         var hasContent = false;
+
         blockEls.forEach(function(bl, idx) {
           var type = bl.getAttribute('data-type');
           if (type === 'text') {
-            var html = bl.querySelector('.ttbwr-editor').innerHTML.trim();
+            var html  = bl.querySelector('.ttbwr-editor').innerHTML.trim();
             var plain = bl.querySelector('.ttbwr-editor').innerText.trim();
             if (plain) hasContent = true;
             blocks.push({ type: 'text', html: html, idx: idx });
@@ -644,23 +539,15 @@ class TTB_WebRev_Client {
             var ftype   = bl.getAttribute('data-file-type')    || '';
             if (dataUrl || caption) hasContent = true;
             blocks.push({ type: 'image', caption: caption, fileIndex: dataUrl ? imageFiles.length : -1, idx: idx });
-            if (dataUrl) {
-              imageFiles.push({ blockIndex: blocks.length - 1, dataUrl: dataUrl, name: fname, mimeType: ftype });
-            }
+            if (dataUrl) imageFiles.push({ blockIndex: blocks.length - 1, dataUrl: dataUrl, name: fname, mimeType: ftype });
           }
         });
 
-        if (!hasContent) {
-          alert('Añade al menos un comentario o imagen antes de enviar.');
-          return;
-        }
+        if (!hasContent) { alert('Añade al menos un comentario o imagen antes de enviar.'); return; }
 
         document.getElementById('ttbwr_blocks_json').value = JSON.stringify(blocks);
 
-        // Construir FormData manualmente con los archivos
         var fd = new FormData(document.getElementById('ttbwr-changes-form'));
-
-        // Convertir dataURLs a Blob y adjuntar
         imageFiles.forEach(function(f, i) {
           var arr = f.dataUrl.split(','), mime = arr[0].match(/:(.*?);/)[1];
           var bstr = atob(arr[1]), n = bstr.length, u8 = new Uint8Array(n);
@@ -671,46 +558,30 @@ class TTB_WebRev_Client {
         fd.set('ttbwr_img_count', imageFiles.length);
 
         var btn = document.getElementById('ttbwr-submit-btn');
-        btn.disabled = true;
-        btn.textContent = '⏳ Enviando...';
+        btn.disabled = true; btn.textContent = '⏳ Enviando...';
 
         fetch(window.location.href, { method: 'POST', body: fd })
           .then(function(r){ return r.text(); })
           .then(function(html){
-            // Buscar JS redirect en la respuesta
             var match = html.match(/window\.location\.replace\((.+?)\)/);
-            if (match) {
-              var url = JSON.parse(match[1]);
-              window.location.replace(url);
-            } else {
-              window.location.reload();
-            }
+            if (match) { window.location.replace(JSON.parse(match[1])); }
+            else { window.location.reload(); }
           })
           .catch(function(){
-            btn.disabled = false;
-            btn.textContent = '📨 Enviar cambios';
+            btn.disabled = false; btn.textContent = '📨 Enviar cambios';
             alert('Error al enviar. Inténtalo de nuevo.');
           });
       });
-
     })();
     </script>
     <?php
   }
 
-  /* ─────────────────────────────────────────────
-     REDIRECT VÍA JS
-     wp_safe_redirect no funciona aquí porque el
-     shell ya ha enviado headers al hacer include.
-  ───────────────────────────────────────────── */
   private static function js_redirect($url) {
     echo '<script>window.location.replace(' . wp_json_encode(esc_url_raw($url)) . ');</script>';
     exit;
   }
 
-  /* ─────────────────────────────────────────────
-     MANEJAR SUBMIT DEL CLIENTE
-  ───────────────────────────────────────────── */
   private static function handle_submit($project) {
     $action = sanitize_text_field($_POST['ttb_webrev_action'] ?? '');
     $token  = sanitize_text_field($_POST['ttb_webrev_token']  ?? '');
@@ -721,16 +592,15 @@ class TTB_WebRev_Client {
 
     if ($action === 'accept') {
       if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_webrev_accept_' . $token)) {
+        TTB_WebRev_DB::log($project->id, 'nonce_failed', 'client', ['action' => 'accept']);
         self::js_redirect(TTB_WebRev_DB::client_url($token));
       }
 
-      // Marcar como aceptado
       $wpdb->update($projects_table, [
         'status'     => 'accepted',
         'updated_at' => TTB_WebRev_DB::now(),
       ], ['id' => $project->id]);
 
-      // Guardar registro
       $round = (int)$wpdb->get_var($wpdb->prepare(
         "SELECT COUNT(*) FROM $revisions_table WHERE project_id=%d", $project->id
       )) + 1;
@@ -744,16 +614,20 @@ class TTB_WebRev_Client {
         'created_at' => TTB_WebRev_DB::now(),
       ]);
 
-      // Notificar equipo
       (new TTB_WebRev_Mailer())->send_accepted_alert($project);
-      TTB_WebRev_DB::log($project->id, 'design_accepted', 'client');
-      TTB_WebRev_DB::log($project->id, 'email_accepted_sent', 'system', ['recipients' => 'hola+creativo']);
 
-      // Redirigir para mostrar estado aceptado
+      TTB_WebRev_DB::log($project->id, 'design_accepted', 'client', [
+        'round' => $round,
+      ]);
+      TTB_WebRev_DB::log($project->id, 'email_accepted_sent', 'system', [
+        'recipients' => 'hola + creativo',
+      ]);
+
       self::js_redirect(TTB_WebRev_DB::client_url($token));
 
     } elseif ($action === 'changes') {
       if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_webrev_changes_' . $token)) {
+        TTB_WebRev_DB::log($project->id, 'nonce_failed', 'client', ['action' => 'changes']);
         self::js_redirect(TTB_WebRev_DB::client_url($token));
       }
 
@@ -764,11 +638,10 @@ class TTB_WebRev_Client {
         self::js_redirect(TTB_WebRev_DB::client_url($token));
       }
 
-      // Validar que hay contenido real
       $has_content = false;
       foreach ($blocks as $b) {
         if (!empty($b['html']) || !empty($b['caption'])) { $has_content = true; break; }
-        if (isset($b['fileIndex']) && $b['fileIndex'] >= 0)    { $has_content = true; break; }
+        if (isset($b['fileIndex']) && $b['fileIndex'] >= 0) { $has_content = true; break; }
       }
       if (!$has_content) {
         self::js_redirect(TTB_WebRev_DB::client_url($token));
@@ -778,7 +651,6 @@ class TTB_WebRev_Client {
         "SELECT COUNT(*) FROM $revisions_table WHERE project_id=%d", $project->id
       )) + 1;
 
-      // ── Subir imágenes indexadas ──────────────────────
       require_once ABSPATH . 'wp-admin/includes/file.php';
       require_once ABSPATH . 'wp-admin/includes/image.php';
       require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -786,7 +658,8 @@ class TTB_WebRev_Client {
       $max_mb    = (int)get_option('ttb_webrev_max_filesize', 5);
       $max_files = (int)get_option('ttb_webrev_max_files', 10);
       $img_count = min((int)($_POST['ttbwr_img_count'] ?? 0), $max_files);
-      $uploaded  = []; // índice → URL
+      $uploaded  = [];
+      $uploaded_count = 0;
 
       for ($i = 0; $i < $img_count; $i++) {
         $key = 'ttbwr_img_file_' . $i;
@@ -808,23 +681,23 @@ class TTB_WebRev_Client {
         ]);
         if (!is_wp_error($att_id)) {
           $uploaded[$i] = wp_get_attachment_url($att_id);
+          $uploaded_count++;
         }
       }
 
-      // ── Enriquecer bloques con las URLs subidas ───────
       $sanitized_blocks = [];
       foreach ($blocks as $b) {
         $type = $b['type'] ?? '';
         if ($type === 'text') {
           $html = wp_kses_post($b['html'] ?? '');
           $text = wp_strip_all_tags($html);
-          if (trim($text) === '') continue; // omitir bloques vacíos
+          if (trim($text) === '') continue;
           $sanitized_blocks[] = ['type' => 'text', 'html' => $html];
         } elseif ($type === 'image') {
           $caption   = sanitize_textarea_field($b['caption'] ?? '');
           $file_idx  = (int)($b['fileIndex'] ?? -1);
           $image_url = ($file_idx >= 0 && isset($uploaded[$file_idx])) ? $uploaded[$file_idx] : '';
-          if (!$image_url && !$caption) continue; // bloque vacío, omitir
+          if (!$image_url && !$caption) continue;
           $sanitized_blocks[] = ['type' => 'image', 'caption' => $caption, 'image_url' => $image_url];
         }
       }
@@ -833,7 +706,6 @@ class TTB_WebRev_Client {
         self::js_redirect(TTB_WebRev_DB::client_url($token));
       }
 
-      // Texto plano del resumen (para el email)
       $message_plain = '';
       foreach ($sanitized_blocks as $b) {
         if ($b['type'] === 'text') $message_plain .= wp_strip_all_tags($b['html']) . "\n\n";
@@ -841,14 +713,12 @@ class TTB_WebRev_Client {
       }
       $message_plain = trim($message_plain);
 
-      // Actualizar estado proyecto
       $wpdb->update($projects_table, [
-        'status'          => 'changes_requested',
-        'last_notified'   => TTB_WebRev_DB::now(),
-        'updated_at'      => TTB_WebRev_DB::now(),
+        'status'        => 'changes_requested',
+        'last_notified' => TTB_WebRev_DB::now(),
+        'updated_at'    => TTB_WebRev_DB::now(),
       ], ['id' => $project->id]);
 
-      // Guardar revisión con bloques en el campo `images` (JSON)
       $wpdb->insert($revisions_table, [
         'project_id' => $project->id,
         'round'      => $round,
@@ -863,8 +733,16 @@ class TTB_WebRev_Client {
       ));
 
       (new TTB_WebRev_Mailer())->send_changes_alert($project, $revision);
-      TTB_WebRev_DB::log($project->id, 'changes_requested', 'client', ['round' => $round]);
-      TTB_WebRev_DB::log($project->id, 'email_changes_sent', 'system', ['round' => $round, 'recipients' => 'hola+creativo']);
+
+      TTB_WebRev_DB::log($project->id, 'changes_requested', 'client', [
+        'round'          => $round,
+        'text_blocks'    => count(array_filter($sanitized_blocks, fn($b) => $b['type'] === 'text')),
+        'image_blocks'   => $uploaded_count,
+      ]);
+      TTB_WebRev_DB::log($project->id, 'email_changes_sent', 'system', [
+        'round'      => $round,
+        'recipients' => 'hola + creativo',
+      ]);
 
       self::js_redirect(TTB_WebRev_DB::client_url($token));
     }

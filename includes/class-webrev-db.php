@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 /**
  * TTB_WebRev_DB
- * Gestión de tablas para el módulo Revisiones Prog. Web
+ * Gestión de tablas para el módulo Revisiones Diseños
  */
 class TTB_WebRev_DB {
 
@@ -17,6 +17,11 @@ class TTB_WebRev_DB {
     return $wpdb->prefix . 'ttb_webrev_revisions';
   }
 
+  public static function audit_table() {
+    global $wpdb;
+    return $wpdb->prefix . 'ttb_webrev_audit';
+  }
+
   public static function create_tables() {
     global $wpdb;
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -24,6 +29,7 @@ class TTB_WebRev_DB {
 
     $projects  = self::projects_table();
     $revisions = self::revisions_table();
+    $audit     = self::audit_table();
 
     // Tabla principal de proyectos / clientes de revisión
     $sql1 = "CREATE TABLE $projects (
@@ -56,8 +62,26 @@ class TTB_WebRev_DB {
       KEY round_idx (round)
     ) $charset;";
 
+    // Tabla de auditoría de eventos
+    $sql3 = "CREATE TABLE $audit (
+      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      project_id  BIGINT UNSIGNED NULL,
+      event       VARCHAR(80) NOT NULL,
+      actor       VARCHAR(20) NOT NULL DEFAULT 'system',
+      detail      LONGTEXT NULL,
+      ip          VARCHAR(45) NULL,
+      ua          VARCHAR(255) NULL,
+      created_at  DATETIME NOT NULL,
+      PRIMARY KEY (id),
+      KEY project_idx (project_id),
+      KEY event_idx (event),
+      KEY actor_idx (actor),
+      KEY created_idx (created_at)
+    ) $charset;";
+
     dbDelta($sql1);
     dbDelta($sql2);
+    dbDelta($sql3);
   }
 
   public static function now() {
@@ -81,5 +105,40 @@ class TTB_WebRev_DB {
   /** URL pública del cliente para un proyecto */
   public static function client_url($token) {
     return home_url('/briefing?webrev=' . urlencode($token));
+  }
+
+  /**
+   * Registra un evento en la tabla de auditoría.
+   *
+   * @param int|null $project_id  ID del proyecto (null para eventos globales)
+   * @param string   $event       Slug del evento (ej: 'project_created')
+   * @param string   $actor       'admin' | 'client' | 'cron' | 'system'
+   * @param array    $detail      Datos adicionales (se guarda como JSON)
+   */
+  public static function log($project_id, $event, $actor = 'system', $detail = []) {
+    global $wpdb;
+    $table = self::audit_table();
+
+    // Sanear detail — evitar loguear contraseñas
+    if (is_array($detail)) {
+      foreach (['password', 'pass', 'p', 'token', 'pass_hash'] as $k) {
+        if (isset($detail[$k])) $detail[$k] = '***';
+      }
+    }
+
+    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $ua = isset($_SERVER['HTTP_USER_AGENT'])
+      ? substr($_SERVER['HTTP_USER_AGENT'], 0, 255)
+      : null;
+
+    $wpdb->insert($table, [
+      'project_id' => $project_id ? (int)$project_id : null,
+      'event'      => sanitize_text_field($event),
+      'actor'      => sanitize_text_field($actor),
+      'detail'     => !empty($detail) ? wp_json_encode($detail, JSON_UNESCAPED_UNICODE) : null,
+      'ip'         => $ip,
+      'ua'         => $ua,
+      'created_at' => self::now(),
+    ]);
   }
 }

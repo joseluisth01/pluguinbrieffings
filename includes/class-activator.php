@@ -9,7 +9,7 @@ class TTB_Activator {
     self::seed_forms();
     (new TTB_Router())->add_rewrite();
     flush_rewrite_rules();
-    // Tablas del módulo Revisiones Web
+    // Tablas del módulo Revisiones Diseños (incluye tabla audit)
     TTB_WebRev_DB::create_tables();
     // Programar cron
     TTB_WebRev_Cron::register();
