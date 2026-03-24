@@ -7,6 +7,8 @@ if (!defined('ABSPATH')) exit;
  */
 class TTB_WebRev_DB {
 
+  const SCHEMA_VERSION = 2;
+
   public static function projects_table() {
     global $wpdb;
     return $wpdb->prefix . 'ttb_webrev_projects';
@@ -31,7 +33,6 @@ class TTB_WebRev_DB {
     $revisions = self::revisions_table();
     $audit     = self::audit_table();
 
-    // Tabla principal de proyectos / clientes de revisión
     $sql1 = "CREATE TABLE $projects (
       id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name            VARCHAR(190) NOT NULL,
@@ -49,7 +50,6 @@ class TTB_WebRev_DB {
       KEY status_idx (status)
     ) $charset;";
 
-    // Tabla de registros de revisión (rondas)
     $sql2 = "CREATE TABLE $revisions (
       id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       project_id  BIGINT UNSIGNED NOT NULL,
@@ -63,7 +63,6 @@ class TTB_WebRev_DB {
       KEY round_idx (round)
     ) $charset;";
 
-    // Tabla de auditoría de eventos
     $sql3 = "CREATE TABLE $audit (
       id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       project_id  BIGINT UNSIGNED NULL,
@@ -84,23 +83,43 @@ class TTB_WebRev_DB {
     dbDelta($sql2);
     dbDelta($sql3);
 
-    // Migración: añadir columna si la tabla ya existe sin ella
-    $col = $wpdb->get_results("SHOW COLUMNS FROM $projects LIKE 'figma_url_mobile'");
+    // Migración: añadir figma_url_mobile si no existe
+    self::migrate_v2();
+
+    update_option('ttb_webrev_schema_version', self::SCHEMA_VERSION);
+  }
+
+  private static function migrate_v2() {
+    global $wpdb;
+    $table = self::projects_table();
+
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) return;
+
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'figma_url_mobile'");
     if (empty($col)) {
-      $wpdb->query("ALTER TABLE $projects ADD COLUMN figma_url_mobile TEXT NULL AFTER figma_url");
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `figma_url_mobile` TEXT NULL AFTER `figma_url`");
     }
+  }
+
+  /**
+   * Ejecuta migraciones si la versión almacenada es inferior a la actual.
+   * Llamar desde plugins_loaded para cubrir actualizaciones sin reactivar el plugin.
+   */
+  public static function run_migrations() {
+    $current = (int) get_option('ttb_webrev_schema_version', 0);
+    if ($current >= self::SCHEMA_VERSION) return;
+    self::create_tables();
   }
 
   public static function now() {
     return current_time('mysql');
   }
 
-  /** Genera un token único para magic link */
   public static function generate_token() {
     return bin2hex(random_bytes(32));
   }
 
-  /** Recupera un proyecto por token */
   public static function get_project_by_token($token) {
     global $wpdb;
     $table = self::projects_table();
@@ -109,14 +128,10 @@ class TTB_WebRev_DB {
     ));
   }
 
-  /** URL pública del cliente para un proyecto */
   public static function client_url($token) {
     return home_url('/briefing?webrev=' . urlencode($token));
   }
 
-  /**
-   * Registra un evento en la tabla de auditoría.
-   */
   public static function log($project_id, $event, $actor = 'system', $detail = []) {
     global $wpdb;
     $table = self::audit_table();

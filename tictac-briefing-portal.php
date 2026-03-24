@@ -57,10 +57,12 @@ add_action('plugins_loaded', function () {
   $auth->init();
   (new TTB_Forms())->init();
 
-  // ── Migraciones de BD — se ejecutan automáticamente si hay versión nueva
-  // Esto garantiza que columnas como go_live_date se creen aunque el plugin
-  // ya estuviera activo al subir el nuevo código (sin necesidad de desactivar/reactivar)
-  TTB_WebProg_DB::run_migrations();
+  // ── Migraciones de BD — garantizan que las tablas existen aunque
+  // el plugin se haya actualizado sin desactivar/reactivar
+  TTB_WebRev_DB::run_migrations();    // <-- AÑADIDO: Revisiones Diseños
+  TTB_WebProg_DB::run_migrations();   // ya existía
+  // Social no tiene run_migrations pero su create_tables es idempotente:
+  TTB_Social_DB::create_tables();     // <-- AÑADIDO: Redes Sociales
 
   // Cron de recordatorios de revisiones diseños
   TTB_WebRev_Cron::register();

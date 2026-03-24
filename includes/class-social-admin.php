@@ -2,14 +2,6 @@
 if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_Admin')) return;
 
-/**
- * TTB_Social_Admin — v3
- * Fixes:
- *  - Chip del calendario muestra solo "Post" (sin caption con \r\n)
- *  - Modal del admin se abre correctamente: el HTML se lee del DOM por data-id,
- *    no se pasa inline en onclick (evita rotura por comillas en nonces)
- *  - Cliente: botones aprobar/rechazar correctamente inyectados en el modal
- */
 class TTB_Social_Admin {
 
   private static $flash = null;
@@ -94,6 +86,68 @@ class TTB_Social_Admin {
   private static function action_url($tab = '') {
     $t = $tab ?: (sanitize_text_field($_GET['sstab'] ?? 'clients'));
     return esc_url(home_url('/briefing?section=redes-sociales&sstab=' . $t));
+  }
+
+  // ── Helper: detectar si una URL es vídeo ──────────────────
+  public static function is_video_url($url) {
+    if (!$url) return false;
+    $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+    return in_array($ext, ['mp4', 'mov', 'webm', 'avi', 'm4v'], true);
+  }
+
+  // ── Helper: detectar si un MIME type es vídeo ────────────
+  public static function is_video_mime($mime) {
+    return strpos((string)$mime, 'video/') === 0;
+  }
+
+  // ── Helper: subir creative (imagen o vídeo) ──────────────
+  private static function upload_creative($file_key, $date_label) {
+    if (empty($_FILES[$file_key]['tmp_name']) || $_FILES[$file_key]['error'] !== UPLOAD_ERR_OK) {
+      return null;
+    }
+
+    $max_mb   = (int)get_option('ttb_social_max_filesize', 50);
+    $file     = $_FILES[$file_key];
+    $mime     = $file['type'];
+    $size     = $file['size'];
+
+    // Validar tamaño
+    if ($size > $max_mb * 1024 * 1024) {
+      self::set_flash('error', 'El archivo supera el límite de ' . $max_mb . ' MB.');
+      return false; // false = error de validación
+    }
+
+    // Validar MIME
+    $allowed_mime = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo',
+    ];
+    if (!in_array($mime, $allowed_mime, true)) {
+      self::set_flash('error', 'Tipo de archivo no permitido. Usa imágenes (JPG, PNG, GIF, WEBP) o vídeos (MP4, MOV, WEBM).');
+      return false;
+    }
+
+    require_once ABSPATH . 'wp-admin/includes/file.php';
+    require_once ABSPATH . 'wp-admin/includes/image.php';
+    require_once ABSPATH . 'wp-admin/includes/media.php';
+
+    $att_id = media_handle_sideload([
+      'name'     => $file['name'],
+      'type'     => $mime,
+      'tmp_name' => $file['tmp_name'],
+      'error'    => $file['error'],
+      'size'     => $size,
+    ], 0, null, [
+      'post_title'  => 'Social Creative - ' . $date_label,
+      'post_status' => 'private',
+    ]);
+
+    if (is_wp_error($att_id)) {
+      self::set_flash('error', 'Error al subir el archivo: ' . $att_id->get_error_message());
+      return false;
+    }
+
+    return wp_get_attachment_url($att_id) ?: null;
   }
 
   /* ════════════════════════════════
@@ -226,22 +280,26 @@ class TTB_Social_Admin {
       $tab = 'calendar'; return;
     }
 
+    // Subir creative (imagen o vídeo)
     $creative_url = '';
     if (!empty($_FILES['sp_creative']['tmp_name']) && $_FILES['sp_creative']['error'] === UPLOAD_ERR_OK) {
-      require_once ABSPATH . 'wp-admin/includes/file.php';
-      require_once ABSPATH . 'wp-admin/includes/image.php';
-      require_once ABSPATH . 'wp-admin/includes/media.php';
-      $att_id = media_handle_sideload([
-        'name'     => $_FILES['sp_creative']['name'],
-        'type'     => $_FILES['sp_creative']['type'],
-        'tmp_name' => $_FILES['sp_creative']['tmp_name'],
-        'error'    => $_FILES['sp_creative']['error'],
-        'size'     => $_FILES['sp_creative']['size'],
-      ], 0, null, ['post_title' => 'Social Creative - ' . $date, 'post_status' => 'private']);
-      if (!is_wp_error($att_id)) $creative_url = wp_get_attachment_url($att_id) ?: '';
+      $result = self::upload_creative('sp_creative', $date);
+      if ($result === false) {
+        $tab = 'calendar'; return; // error ya seteado en upload_creative
+      }
+      $creative_url = $result ?? '';
     }
+    // Fallback: URL manual
     if (!$creative_url && !empty($_POST['sp_creative_url'])) {
       $creative_url = esc_url_raw($_POST['sp_creative_url']);
+    }
+
+    // Determinar post_type según el creative
+    $post_type = 'post';
+    if ($creative_url && self::is_video_url($creative_url)) {
+      $post_type = 'video';
+    } elseif (!empty($_FILES['sp_creative']['type']) && self::is_video_mime($_FILES['sp_creative']['type'])) {
+      $post_type = 'video';
     }
 
     global $wpdb;
@@ -253,7 +311,7 @@ class TTB_Social_Admin {
       'scheduled_date' => $date,
       'scheduled_time' => $time ?: null,
       'network'        => 'all',
-      'post_type'      => 'post',
+      'post_type'      => $post_type,
       'caption'        => $caption,
       'creative_url'   => $creative_url,
       'creative_note'  => $note,
@@ -273,7 +331,7 @@ class TTB_Social_Admin {
       TTB_Social_DB::log($client_id, $post_id, 'email_approval_sent', 'admin', []);
     }
 
-    TTB_Social_DB::log($client_id, $post_id, 'post_created', 'admin', ['date' => $date]);
+    TTB_Social_DB::log($client_id, $post_id, 'post_created', 'admin', ['date' => $date, 'type' => $post_type]);
     self::set_flash('success', 'Publicación creada y notificación enviada al cliente.');
     $tab = 'calendar';
   }
@@ -295,21 +353,24 @@ class TTB_Social_Admin {
     }
 
     $creative_url = $keep_url;
+
     if (!empty($_FILES['sp_creative']['tmp_name']) && $_FILES['sp_creative']['error'] === UPLOAD_ERR_OK) {
-      require_once ABSPATH . 'wp-admin/includes/file.php';
-      require_once ABSPATH . 'wp-admin/includes/image.php';
-      require_once ABSPATH . 'wp-admin/includes/media.php';
-      $att_id = media_handle_sideload([
-        'name'     => $_FILES['sp_creative']['name'],
-        'type'     => $_FILES['sp_creative']['type'],
-        'tmp_name' => $_FILES['sp_creative']['tmp_name'],
-        'error'    => $_FILES['sp_creative']['error'],
-        'size'     => $_FILES['sp_creative']['size'],
-      ], 0, null, ['post_title' => 'Social Creative - ' . $date, 'post_status' => 'private']);
-      if (!is_wp_error($att_id)) $creative_url = wp_get_attachment_url($att_id) ?: $keep_url;
+      $result = self::upload_creative('sp_creative', $date);
+      if ($result === false) {
+        $tab = 'calendar'; return;
+      }
+      $creative_url = $result ?? $keep_url;
     }
     if (!$creative_url && !empty($_POST['sp_creative_url'])) {
       $creative_url = esc_url_raw($_POST['sp_creative_url']);
+    }
+
+    // Determinar post_type
+    $post_type = 'post';
+    if ($creative_url && self::is_video_url($creative_url)) {
+      $post_type = 'video';
+    } elseif (!empty($_FILES['sp_creative']['type']) && self::is_video_mime($_FILES['sp_creative']['type'])) {
+      $post_type = 'video';
     }
 
     global $wpdb;
@@ -327,11 +388,12 @@ class TTB_Social_Admin {
       'caption'        => $caption,
       'creative_url'   => $creative_url,
       'creative_note'  => $note,
+      'post_type'      => $post_type,
       'status'         => $new_status,
       'updated_at'     => TTB_Social_DB::now(),
     ], ['id' => $post_id]);
 
-    TTB_Social_DB::log((int)$post->client_id, $post_id, 'post_updated', 'admin', ['date' => $date]);
+    TTB_Social_DB::log((int)$post->client_id, $post_id, 'post_updated', 'admin', ['date' => $date, 'type' => $post_type]);
 
     if ($renotify) {
       $client       = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . TTB_Social_DB::clients_table() . " WHERE id=%d", $post->client_id));
@@ -403,7 +465,7 @@ class TTB_Social_Admin {
       'ttb_social_notify_hola'      => sanitize_email($_POST['ttb_social_notify_hola']      ?? ''),
       'ttb_social_resend_days'      => max(1, (int)($_POST['ttb_social_resend_days']        ?? 2)),
       'ttb_social_max_resends'      => (int)($_POST['ttb_social_max_resends']               ?? 3),
-      'ttb_social_max_filesize'     => max(1, min(200, (int)($_POST['ttb_social_max_filesize'] ?? 50))),
+      'ttb_social_max_filesize'     => max(1, min(500, (int)($_POST['ttb_social_max_filesize'] ?? 50))),
       'ttb_social_approval_subject' => sanitize_text_field($_POST['ttb_social_approval_subject'] ?? ''),
       'ttb_social_approval_note'    => sanitize_textarea_field($_POST['ttb_social_approval_note'] ?? ''),
     ];
@@ -542,7 +604,7 @@ class TTB_Social_Admin {
 
     echo '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;padding:4px 0">';
     foreach ($items as $item) {
-      $is_video = in_array(strtolower(pathinfo($item->file_url ?? '', PATHINFO_EXTENSION)), ['mp4','mov','webm','avi'], true);
+      $is_video = ($item->type === 'video') || self::is_video_url($item->file_url ?? '');
       echo '<div class="ttb-card" style="padding:12px">';
       if ($item->type === 'text' || !$item->file_url) {
         echo '<div style="background:#f9fafb;border-radius:10px;padding:14px;min-height:100px;font-size:14px;color:var(--ttb-text);line-height:1.6;margin-bottom:10px">' . nl2br(esc_html(mb_substr($item->caption ?? '', 0, 200))) . '</div>';
@@ -587,6 +649,8 @@ class TTB_Social_Admin {
     $next_month = date('Y-m', strtotime('+1 month', $first_day));
     $month_name = date_i18n('F Y', $first_day);
 
+    $max_mb = (int)get_option('ttb_social_max_filesize', 50);
+
     $edit_post_id = (int)($_GET['edit_sp'] ?? 0);
     $edit_post    = null;
     if ($edit_post_id) $edit_post = $wpdb->get_row($wpdb->prepare("SELECT * FROM $posts_table WHERE id=%d", $edit_post_id));
@@ -604,7 +668,7 @@ class TTB_Social_Admin {
       $posts_by_day[(int)date('j', strtotime($p->scheduled_date))][] = $p;
     }
 
-    // Formulario nuevo post
+    // ── Formulario nuevo post ──
     echo '<div class="ttb-card"><h3 style="margin:0 0 4px">Nueva publicación</h3><p class="ttb-muted" style="margin:0 0 14px;font-size:13px">Al guardar se notifica automáticamente al cliente.</p></div>';
     echo '<form method="post" action="' . $action_url . '" class="ttb-card" enctype="multipart/form-data">';
     wp_nonce_field('ttb_social_post_create');
@@ -615,9 +679,13 @@ class TTB_Social_Admin {
     echo '<div><label>Fecha <span class="ttb-required">*</span></label><input class="ttb-input" type="date" name="sp_date" required value="' . esc_attr(date('Y-m-d')) . '"></div>';
     echo '</div>';
     echo '<div style="margin-top:10px"><label>Hora estimada <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label><input class="ttb-input" type="time" name="sp_time"></div>';
-    echo '<div style="margin-top:10px"><label>Creatividad</label>';
-    echo '<input class="ttb-input" type="file" name="sp_creative" accept="image/*,video/*" style="margin-bottom:6px">';
-    echo '<input class="ttb-input" type="url" name="sp_creative_url" placeholder="o pega una URL..."></div>';
+
+    // Campo creative mejorado con soporte vídeo explícito
+    echo '<div style="margin-top:10px"><label>Creatividad <span style="font-weight:400;color:var(--ttb-muted)">(imagen o vídeo)</span></label>';
+    echo '<input class="ttb-input" type="file" name="sp_creative" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm" style="margin-bottom:6px">';
+    echo '<small class="ttb-muted" style="display:block;margin-bottom:6px">JPG, PNG, GIF, WEBP, MP4, MOV, WEBM · Máx. ' . $max_mb . ' MB</small>';
+    echo '<input class="ttb-input" type="url" name="sp_creative_url" placeholder="o pega una URL de imagen o vídeo..."></div>';
+
     echo '<div style="margin-top:10px"><label>Texto de la publicación <span style="font-weight:400;color:var(--ttb-muted)">(caption)</span></label>';
     echo '<textarea name="sp_caption" class="ttb-textarea" style="min-height:80px" placeholder="Escribe el copy del post..."></textarea></div>';
     echo '<div style="margin-top:10px"><label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(aparece en el email)</span></label>';
@@ -625,9 +693,10 @@ class TTB_Social_Admin {
     echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_social_post_create" value="1">Crear y notificar al cliente</button></div>';
     echo '</form>';
 
-    // Modal editar
+    // ── Modal editar ──
     if ($edit_post) {
-      $cancel_url = esc_url(home_url('/briefing?section=redes-sociales&sstab=calendar&filter_month=' . $filter_month . ($filter_client ? '&filter_client=' . $filter_client : '')));
+      $cancel_url  = esc_url(home_url('/briefing?section=redes-sociales&sstab=calendar&filter_month=' . $filter_month . ($filter_client ? '&filter_client=' . $filter_client : '')));
+      $is_vid_edit = self::is_video_url($edit_post->creative_url ?? '');
       echo '<div class="ttb-modal-overlay" id="ttbSpEditModal" role="dialog" aria-modal="true" style="display:flex">';
       echo '<div class="ttb-modal ttb-edit-modal" style="max-width:580px"><h3 class="ttb-edit-modal__title">Editar publicación</h3>';
       echo '<form method="post" action="' . $action_url . '" class="ttb-formgrid" enctype="multipart/form-data">';
@@ -639,8 +708,15 @@ class TTB_Social_Admin {
       echo '<div><label>Hora</label><input class="ttb-input" type="time" name="sp_time" value="' . esc_attr(substr($edit_post->scheduled_time ?? '', 0, 5)) . '"></div>';
       echo '</div>';
       echo '<div style="margin-top:10px"><label>Nueva creatividad <span style="font-weight:400;color:var(--ttb-muted)">(vacío = conservar)</span></label>';
-      if ($edit_post->creative_url) echo '<a href="' . esc_url($edit_post->creative_url) . '" target="_blank" style="display:block;font-size:12px;color:var(--ttb-pink);margin-bottom:6px">Ver creatividad actual →</a>';
-      echo '<input class="ttb-input" type="file" name="sp_creative" accept="image/*,video/*" style="margin-bottom:6px">';
+      if ($edit_post->creative_url) {
+        if ($is_vid_edit) {
+          echo '<div style="margin-bottom:8px"><video src="' . esc_url($edit_post->creative_url) . '" controls style="width:100%;max-height:160px;border-radius:8px;background:#111"></video></div>';
+        } else {
+          echo '<a href="' . esc_url($edit_post->creative_url) . '" target="_blank" style="display:block;font-size:12px;color:var(--ttb-pink);margin-bottom:6px">Ver creatividad actual →</a>';
+        }
+      }
+      echo '<input class="ttb-input" type="file" name="sp_creative" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm" style="margin-bottom:4px">';
+      echo '<small class="ttb-muted" style="display:block;margin-bottom:6px">JPG, PNG, GIF, WEBP, MP4, MOV, WEBM · Máx. ' . $max_mb . ' MB</small>';
       echo '<input class="ttb-input" type="url" name="sp_creative_url" placeholder="o pega una URL..."></div>';
       echo '<div style="margin-top:10px"><label>Caption</label><textarea name="sp_caption" class="ttb-textarea" style="min-height:80px">' . esc_textarea($edit_post->caption ?? '') . '</textarea></div>';
       echo '<div style="margin-top:10px"><label>Nota para el cliente</label><input class="ttb-input" type="text" name="sp_note" value="' . esc_attr($edit_post->creative_note ?? '') . '"></div>';
@@ -650,7 +726,7 @@ class TTB_Social_Admin {
       echo '</div></form></div></div>';
     }
 
-    // Calendario
+    // ── Calendario ──
     echo '<div class="ttb-card">';
     echo '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
     echo '<div style="display:flex;align-items:center;gap:10px">';
@@ -665,13 +741,9 @@ class TTB_Social_Admin {
     echo '</select><button class="ttb-btn ttb-btn--ghost ttb-btn--sm" type="submit">Filtrar</button></form>';
     echo '</div>';
 
-    // Renderizar posts ocultos en el DOM para el modal
     self::render_posts_data_store($posts_raw, $action_url, $statuses, $filter_month, $filter_client);
-
-    // Grid
     self::render_calendar_grid($posts_by_day, $days_in, $start_dow, $year, $month, $action_url, $statuses, $filter_month, $filter_client, true);
 
-    // Leyenda
     echo '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;font-size:12px">';
     foreach ([['#fffbeb','#fde68a','#92400e','Pendiente aprobación'],['#ecfdf5','#6ee7b7','#065f46','Aprobado'],['#fff1f2','#fecdd3','#be123c','Rechazado'],['#eff6ff','#bfdbfe','#1d4ed8','Publicado']] as [$bg,$bc,$co,$lbl]) {
       echo '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:3px;background:' . $bg . ';border:1px solid ' . $bc . ';display:inline-block"></span><span style="color:var(--ttb-muted)">' . esc_html($lbl) . '</span></span>';
@@ -679,11 +751,6 @@ class TTB_Social_Admin {
     echo '</div></div>';
   }
 
-  /**
-   * Renderiza el HTML de cada post en divs ocultos en el DOM.
-   * El JS los lee por ID cuando el usuario hace clic en un chip.
-   * Esto evita pasar HTML con nonces dentro de un onclick JSON (que rompe por comillas).
-   */
   private static function render_posts_data_store($posts, $action_url, $statuses, $filter_month, $filter_client) {
     echo '<div id="ttb-posts-store" style="display:none">';
     foreach ($posts as $post) {
@@ -692,25 +759,27 @@ class TTB_Social_Admin {
       $time_str = $post->scheduled_time ? ' · ' . substr($post->scheduled_time, 0, 5) . 'h' : '';
       $back_qs  = '&filter_month=' . urlencode($filter_month) . ($filter_client ? '&filter_client=' . (int)$filter_client : '');
       $edit_url = esc_url(home_url('/briefing?section=redes-sociales&sstab=calendar&edit_sp=' . (int)$post->id . $back_qs));
+      // Detectar si es vídeo usando tipo guardado en BD O extensión de URL
+      $is_video = ($post->post_type === 'video') || self::is_video_url($post->creative_url ?? '');
 
       ob_start();
       ?>
       <div id="ttb-post-data-<?php echo (int)$post->id; ?>">
-        <!-- Cabecera -->
         <div style="margin-bottom:14px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
             <strong style="font-size:16px"><?php echo esc_html($post->client_name ?? ''); ?></strong>
             <span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:<?php echo $sbg; ?>;border:1px solid <?php echo $sbc; ?>;color:<?php echo $sco; ?>"><?php echo esc_html($sl); ?></span>
+            <?php if ($is_video): ?>
+              <span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#1a1a2e;color:#fff">🎬 Vídeo</span>
+            <?php endif; ?>
           </div>
           <p style="margin:0;font-size:13px;color:var(--ttb-muted)"><?php echo esc_html($date_fmt . $time_str); ?></p>
         </div>
 
-        <!-- Creatividad -->
         <?php if ($post->creative_url): ?>
-          <?php $is_vid = in_array(strtolower(pathinfo($post->creative_url, PATHINFO_EXTENSION)), ['mp4','mov','webm'], true); ?>
           <div style="border-radius:12px;overflow:hidden;margin-bottom:14px;border:1px solid var(--ttb-border)">
-            <?php if ($is_vid): ?>
-              <video src="<?php echo esc_url($post->creative_url); ?>" controls style="width:100%;max-height:260px;display:block;background:#111"></video>
+            <?php if ($is_video): ?>
+              <video src="<?php echo esc_url($post->creative_url); ?>" controls style="width:100%;max-height:320px;display:block;background:#111"></video>
             <?php else: ?>
               <a href="<?php echo esc_url($post->creative_url); ?>" target="_blank">
                 <img src="<?php echo esc_url($post->creative_url); ?>" style="width:100%;max-height:300px;object-fit:cover;display:block" alt="Creatividad">
@@ -719,17 +788,14 @@ class TTB_Social_Admin {
           </div>
         <?php endif; ?>
 
-        <!-- Caption -->
         <?php if ($post->caption): ?>
           <div style="background:#f9fafb;border-radius:10px;padding:12px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;white-space:pre-line;border-left:3px solid var(--ttb-pink)"><?php echo esc_html($post->caption); ?></div>
         <?php endif; ?>
 
-        <!-- Nota del equipo -->
         <?php if ($post->creative_note): ?>
           <div style="background:#fdf4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7e22ce;border:1px solid #e9d5ff"><?php echo esc_html($post->creative_note); ?></div>
         <?php endif; ?>
 
-        <!-- Comentario del cliente si rechazó -->
         <?php if ($post->status === 'rejected' && $post->client_note): ?>
           <div style="background:#fff1f2;border-radius:10px;padding:12px;margin-bottom:12px;font-size:13px;color:#be123c;border:1px solid #fecdd3">
             <strong style="display:block;margin-bottom:4px">Comentario del cliente:</strong>
@@ -737,7 +803,6 @@ class TTB_Social_Admin {
           </div>
         <?php endif; ?>
 
-        <!-- Acciones admin -->
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;border-top:1px solid var(--ttb-border);padding-top:14px">
           <a href="<?php echo $edit_url; ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Editar</a>
 
@@ -772,7 +837,6 @@ class TTB_Social_Admin {
     echo '</div>';
   }
 
-  /* ── Helper: grid visual del calendario ─────────────────── */
   public static function render_calendar_grid($posts_by_day, $days_in, $start_dow, $year, $month, $action_url, $statuses, $filter_month, $filter_client, $is_admin) {
     $today_day    = (int)date('j');
     $today_month  = (int)date('m');
@@ -798,7 +862,6 @@ class TTB_Social_Admin {
     .ttb-post-detail-close:hover { background:#e5e7eb; }
     </style>
 
-    <!-- Modal detalle -->
     <div id="ttb-post-detail-overlay" style="display:none" role="dialog" aria-modal="true">
       <div class="ttb-post-detail">
         <button class="ttb-post-detail-close" onclick="ttbClosePostDetail()">✕</button>
@@ -821,13 +884,14 @@ class TTB_Social_Admin {
         foreach ($day_posts as $post) {
           if ($shown >= 3) break;
           [$sl,$sbg,$sbc,$sco] = $statuses[$post->status] ?? ['—','#f3f4f6','#e5e7eb','#374151'];
+          $is_video_chip = ($post->post_type === 'video') || self::is_video_url($post->creative_url ?? '');
+          $chip_label = $is_video_chip ? '🎬' : 'Post';
 
-          // Chip: siempre muestra "Post" — sin texto del caption
           echo '<span class="ttb-cal-post-chip"
             style="background:' . $sbg . ';border:1px solid ' . $sbc . ';color:' . $sco . '"
             data-post-id="' . (int)$post->id . '"
             title="' . esc_attr(($post->client_name ?? 'Post') . ' — ' . $sl) . '"
-          >Post</span>';
+          >' . $chip_label . '</span>';
           $shown++;
         }
 
@@ -844,44 +908,37 @@ class TTB_Social_Admin {
 
     <script>
     (function(){
-      // Delegación de eventos en todos los chips del calendario
       document.querySelectorAll('.ttb-cal-post-chip[data-post-id]').forEach(function(chip) {
         chip.addEventListener('click', function() {
-          var postId = chip.getAttribute('data-post-id');
-          ttbOpenPostDetail(postId);
+          ttbOpenPostDetail(chip.getAttribute('data-post-id'));
         });
       });
 
       window.ttbOpenPostDetail = function(postId) {
-        // Buscar el HTML del post en el store oculto (admin) o en los forms del cliente
-        var store = document.getElementById('ttb-post-data-' + postId);
-
-        // Si no está en el store admin, buscar en el store del cliente
-        if (!store) {
-          store = document.getElementById('ttb-client-post-data-' + postId);
-        }
-
-        if (!store) {
-          console.warn('No se encontró datos del post ' + postId);
-          return;
-        }
+        var store = document.getElementById('ttb-post-data-' + postId)
+                 || document.getElementById('ttb-client-post-data-' + postId);
+        if (!store) return;
 
         var overlay = document.getElementById('ttb-post-detail-overlay');
         var body    = document.getElementById('ttb-post-detail-body');
-
-        // Clonar el nodo para preservar los forms/nonces originales
         body.innerHTML = '';
         var clone = store.cloneNode(true);
         clone.style.display = 'block';
         clone.removeAttribute('id');
         body.appendChild(clone);
 
+        // Reiniciar vídeos clonados para que no sigan reproduciendo el anterior
+        body.querySelectorAll('video').forEach(function(v){ v.load(); });
+
         overlay.style.display = 'flex';
         document.addEventListener('keydown', ttbEscPostDetail);
       };
 
       window.ttbClosePostDetail = function() {
-        document.getElementById('ttb-post-detail-overlay').style.display = 'none';
+        var overlay = document.getElementById('ttb-post-detail-overlay');
+        // Pausar vídeos al cerrar
+        overlay.querySelectorAll('video').forEach(function(v){ v.pause(); });
+        overlay.style.display = 'none';
         document.removeEventListener('keydown', ttbEscPostDetail);
       };
 
@@ -1028,8 +1085,9 @@ class TTB_Social_Admin {
     echo '<div><label>Días entre recordatorios</label><input class="ttb-input" type="number" name="ttb_social_resend_days" value="' . $resend_days . '" min="1" max="30"><small class="ttb-muted">Si el cliente no aprueba, se reenvía cada N días.</small></div>';
     echo '<div><label>Máximo de recordatorios</label><input class="ttb-input" type="number" name="ttb_social_max_resends" value="' . $max_resends . '" min="0" max="20"><small class="ttb-muted">0 = sin límite.</small></div>';
     echo '</div></div>';
-    echo '<div class="ttb-card"><h4 style="margin:0 0 14px">Contenido del cliente</h4>';
-    echo '<div><label>Tamaño máximo por archivo (MB)</label><input class="ttb-input" type="number" name="ttb_social_max_filesize" value="' . $max_mb . '" min="1" max="200"></div></div>';
+    echo '<div class="ttb-card"><h4 style="margin:0 0 14px">Archivos (imágenes y vídeos)</h4>';
+    echo '<div><label>Tamaño máximo por archivo (MB) — aplica a clientes y admin</label><input class="ttb-input" type="number" name="ttb_social_max_filesize" value="' . $max_mb . '" min="1" max="500">';
+    echo '<small class="ttb-muted" style="display:block;margin-top:4px">Para vídeos se recomiendan 200-500 MB. Verifica también el límite <code>upload_max_filesize</code> de tu servidor.</small></div></div>';
     echo '<div class="ttb-card"><h4 style="margin:0 0 14px">Email de aprobación al cliente</h4><div class="ttb-formgrid">';
     echo '<div><label>Asunto</label><input class="ttb-input" type="text" name="ttb_social_approval_subject" value="' . esc_attr($approval_subj) . '"></div>';
     echo '<div><label>Nota extra (opcional)</label><textarea class="ttb-textarea" name="ttb_social_approval_note" style="min-height:70px">' . esc_textarea($approval_note) . '</textarea></div>';

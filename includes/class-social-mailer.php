@@ -2,24 +2,14 @@
 if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_Mailer')) return;
 
-/**
- * TTB_Social_Mailer — v2
- * Correcciones:
- *  - Email "contenido recibido" layout reparado (tabla correctamente cerrada)
- *  - Email aprobación: asunto con emoji limpio, sin emojis en redes
- */
 class TTB_Social_Mailer {
 
   private $pink = '#D72173';
   private $logo = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
 
-  /* ─────────────────────────────────────────────
-     Email de bienvenida al cliente
-  ───────────────────────────────────────────── */
   public function send_welcome($client) {
     $emails = $this->parse_emails($client->emails);
     if (!$emails) return;
-
     $url     = TTB_Social_DB::client_url($client->token);
     $subject = 'Tu portal de Redes Sociales está listo — TicTac Comunicación';
     $message = $this->tpl_welcome($client->name, $url);
@@ -27,14 +17,10 @@ class TTB_Social_Mailer {
     foreach ($emails as $email) wp_mail(trim($email), $subject, $message, $headers);
   }
 
-  /* ─────────────────────────────────────────────
-     Email al cliente: creatividad para aprobar
-  ───────────────────────────────────────────── */
   public function send_post_approval($client, $post) {
     $emails = $this->parse_emails($client->emails);
     if (!$emails) return;
-
-    $url           = TTB_Social_DB::client_url($client->token);
+    $url            = TTB_Social_DB::client_url($client->token);
     $date_formatted = date_i18n('l, j \d\e F \d\e Y', strtotime($post->scheduled_date));
     $subject        = 'Creatividad lista para revisar — ' . $date_formatted . ' — TicTac Comunicación';
     $message        = $this->tpl_approval($client->name, $url, $post, $date_formatted);
@@ -42,9 +28,6 @@ class TTB_Social_Mailer {
     foreach ($emails as $email) wp_mail(trim($email), $subject, $message, $headers);
   }
 
-  /* ─────────────────────────────────────────────
-     Email interno: cliente aprobó
-  ───────────────────────────────────────────── */
   public function send_approved_alert($client, $post) {
     $to      = $this->internal_emails();
     $date    = date_i18n('d/m/Y', strtotime($post->scheduled_date));
@@ -54,9 +37,6 @@ class TTB_Social_Mailer {
     foreach ($to as $email) wp_mail($email, $subject, $message, $headers);
   }
 
-  /* ─────────────────────────────────────────────
-     Email interno: cliente rechazó
-  ───────────────────────────────────────────── */
   public function send_rejected_alert($client, $post) {
     $to      = $this->internal_emails();
     $date    = date_i18n('d/m/Y', strtotime($post->scheduled_date));
@@ -66,9 +46,6 @@ class TTB_Social_Mailer {
     foreach ($to as $email) wp_mail($email, $subject, $message, $headers);
   }
 
-  /* ─────────────────────────────────────────────
-     Email interno: nuevo contenido subido
-  ───────────────────────────────────────────── */
   public function send_content_received($client, $count) {
     $to      = $this->internal_emails();
     $subject = 'Nuevo contenido recibido — ' . $client->name . ' (' . $count . ' archivo' . ($count > 1 ? 's' : '') . ')';
@@ -78,9 +55,6 @@ class TTB_Social_Mailer {
     foreach ($to as $email) wp_mail($email, $subject, $message, $headers);
   }
 
-  /* ─────────────────────────────────────────────
-     HELPERS
-  ───────────────────────────────────────────── */
   public function parse_emails($raw) {
     $decoded = json_decode($raw, true);
     if (is_array($decoded)) return array_filter($decoded, 'is_email');
@@ -93,9 +67,12 @@ class TTB_Social_Mailer {
     return array_filter(array_map('trim', [$a, $b]));
   }
 
-  /* ─────────────────────────────────────────────
-     WRAPPER HTML base
-  ───────────────────────────────────────────── */
+  private function is_video_url($url) {
+    if (!$url) return false;
+    $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+    return in_array($ext, ['mp4', 'mov', 'webm', 'avi', 'm4v'], true);
+  }
+
   private function wrap($header_html, $body_html) {
     $pink = $this->pink;
     $logo = $this->logo;
@@ -128,20 +105,13 @@ class TTB_Social_Mailer {
 </body></html>';
   }
 
-  /* ─────────────────────────────────────────────
-     TEMPLATES
-  ───────────────────────────────────────────── */
   private function tpl_welcome($name, $url) {
-    $pink = $this->pink;
-
+    $pink   = $this->pink;
     $header = '<h1 style="margin:0 0 6px;color:#fff;font-size:20px;font-weight:900">Tu portal de Redes Sociales</h1>
                <p style="margin:0;color:rgba(255,255,255,.85);font-size:14px">Revisa publicaciones y comparte tu contenido con nosotros</p>';
-
     $body = '
       <p style="margin:0 0 6px;font-size:17px;color:#1a1a2e;font-weight:700">Hola, <span style="color:' . $pink . '">' . esc_html($name) . '</span></p>
-      <p style="margin:0 0 22px;font-size:15px;color:#4b5563;line-height:1.6">
-        Hemos creado tu espacio para gestionar las redes sociales con TicTac. Desde aquí podrás:
-      </p>
+      <p style="margin:0 0 22px;font-size:15px;color:#4b5563;line-height:1.6">Hemos creado tu espacio para gestionar las redes sociales con TicTac. Desde aqu&iacute; podr&aacute;s:</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:12px;margin-bottom:24px">
         <tr><td style="padding:18px 20px">
           <p style="margin:0 0 8px;font-size:14px;color:#4b5563;line-height:1.5">Subir fotos y v&iacute;deos para tus publicaciones.</p>
@@ -160,26 +130,41 @@ class TTB_Social_Mailer {
         </td></tr>
       </table>
       <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.5">
-        Si el bot&oacute;n no funciona, copia este enlace:<br>
+        Si el bot&oacute;n no funciona:<br>
         <a href="' . esc_url($url) . '" style="color:' . $pink . ';word-break:break-all">' . esc_url($url) . '</a>
       </p>';
-
     return $this->wrap($header, $body);
   }
 
   private function tpl_approval($name, $url, $post, $date_formatted) {
-    $pink = $this->pink;
+    $pink     = $this->pink;
+    $is_video = ($post->post_type === 'video') || $this->is_video_url($post->creative_url ?? '');
 
     $header = '<h1 style="margin:0 0 6px;color:#fff;font-size:20px;font-weight:900">Creatividad lista para revisar</h1>
                <p style="margin:0;color:rgba(255,255,255,.85);font-size:14px">' . esc_html($date_formatted) . '</p>';
 
+    // Bloque de creatividad según tipo
     $creative_html = '';
     if ($post->creative_url) {
-      $ext = strtolower(pathinfo($post->creative_url, PATHINFO_EXTENSION));
-      if (!in_array($ext, ['mp4','mov','webm'], true)) {
-        $creative_html = '<div style="border-radius:12px;overflow:hidden;margin-bottom:20px;border:1px solid #f3f4f6">
-          <img src="' . esc_url($post->creative_url) . '" style="width:100%;max-height:400px;object-fit:cover;display:block" alt="Creatividad">
-        </div>';
+      if ($is_video) {
+        // Para vídeos en email: no podemos embeber video HTML (mayoría de clientes de email no lo soportan)
+        // Mostramos un bloque CTA claro con enlace al portal
+        $creative_html = '
+          <div style="border-radius:12px;overflow:hidden;margin-bottom:20px;background:#1a1a2e;padding:32px 24px;text-align:center">
+            <p style="margin:0 0 8px;font-size:36px">🎬</p>
+            <p style="margin:0 0 6px;font-size:16px;font-weight:900;color:#fff">Creatividad en v&iacute;deo</p>
+            <p style="margin:0 0 16px;font-size:13px;color:rgba(255,255,255,.7)">Accede al portal para reproducir y revisar el v&iacute;deo</p>
+            <a href="' . esc_url($url) . '" target="_blank" rel="noopener"
+               style="display:inline-block;background:' . $pink . ';color:#fff;text-decoration:none;
+                      font-weight:900;font-size:14px;padding:12px 28px;border-radius:10px">
+              Ver v&iacute;deo en el portal &rarr;
+            </a>
+          </div>';
+      } else {
+        $creative_html = '
+          <div style="border-radius:12px;overflow:hidden;margin-bottom:20px;border:1px solid #f3f4f6">
+            <img src="' . esc_url($post->creative_url) . '" style="width:100%;max-height:400px;object-fit:cover;display:block" alt="Creatividad">
+          </div>';
       }
     }
 
@@ -230,9 +215,7 @@ class TTB_Social_Mailer {
   private function tpl_internal_approved($client, $post, $date) {
     $pink   = $this->pink;
     $portal = home_url('/briefing?section=redes-sociales&sstab=calendar');
-
     $header = '<h1 style="margin:0;color:#fff;font-size:20px;font-weight:900">Post aprobado</h1>';
-
     $body = '
       <div style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:14px;padding:18px 22px;margin-bottom:20px">
         <p style="margin:0 0 4px;font-size:18px;font-weight:900;color:#065f46">El cliente ha dado el visto bueno</p>
@@ -253,7 +236,6 @@ class TTB_Social_Mailer {
           </a>
         </td></tr>
       </table>';
-
     return $this->wrap($header, $body);
   }
 
@@ -261,18 +243,15 @@ class TTB_Social_Mailer {
     $pink   = $this->pink;
     $portal = home_url('/briefing?section=redes-sociales&sstab=calendar');
     $note   = $post->client_note ? esc_html($post->client_note) : '—';
-
     $header = '<h1 style="margin:0;color:#fff;font-size:20px;font-weight:900">Post rechazado con comentarios</h1>';
-
     $body = '
       <div style="background:#fff1f2;border:1.5px solid #fecdd3;border-radius:14px;padding:18px 22px;margin-bottom:20px">
         <p style="margin:0 0 4px;font-size:18px;font-weight:900;color:#be123c">El cliente ha pedido cambios</p>
         <p style="margin:0;font-size:14px;color:#e11d48">Revisa su comentario y actualiza la creatividad.</p>
       </div>
       <div style="background:#f9fafb;border-radius:12px;padding:16px 20px;margin-bottom:16px">
-        <p style="margin:0 0 6px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase">Datos</p>
         <p style="margin:0 0 4px;font-size:14px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($client->name) . '</p>
-        <p style="margin:0;font-size:14px;color:#1a1a2e"><strong>Fecha programada:</strong> ' . esc_html($date) . '</p>
+        <p style="margin:0;font-size:14px;color:#1a1a2e"><strong>Fecha:</strong> ' . esc_html($date) . '</p>
       </div>
       <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:16px 20px;margin-bottom:20px">
         <p style="margin:0 0 6px;font-size:12px;font-weight:900;color:#92400e;text-transform:uppercase">Comentario del cliente</p>
@@ -288,15 +267,12 @@ class TTB_Social_Mailer {
           </a>
         </td></tr>
       </table>';
-
     return $this->wrap($header, $body);
   }
 
   private function tpl_content_received($client_name, $count, $portal) {
-    $pink = $this->pink;
-
+    $pink   = $this->pink;
     $header = '<h1 style="margin:0;color:#fff;font-size:20px;font-weight:900">Nuevo contenido recibido</h1>';
-
     $body = '
       <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:14px;padding:18px 22px;margin-bottom:20px">
         <p style="margin:0 0 4px;font-size:18px;font-weight:900;color:#1d4ed8">' . esc_html($client_name) . '</p>
@@ -314,7 +290,6 @@ class TTB_Social_Mailer {
           </a>
         </td></tr>
       </table>';
-
     return $this->wrap($header, $body);
   }
 }
