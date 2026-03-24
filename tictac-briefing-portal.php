@@ -22,6 +22,7 @@ require_once TTB_PATH . 'includes/class-auth.php';
 require_once TTB_PATH . 'includes/class-forms.php';
 require_once TTB_PATH . 'includes/class-mailer.php';
 require_once TTB_PATH . 'includes/class-drive.php';
+require_once TTB_PATH . 'includes/ttb-icons.php';
 require_once TTB_PATH . 'includes/class-admin-ui.php';
 require_once TTB_PATH . 'includes/class-client-ui.php';
 
@@ -55,6 +56,11 @@ add_action('plugins_loaded', function () {
   (new TTB_Router())->init();
   $auth->init();
   (new TTB_Forms())->init();
+
+  // ── Migraciones de BD — se ejecutan automáticamente si hay versión nueva
+  // Esto garantiza que columnas como go_live_date se creen aunque el plugin
+  // ya estuviera activo al subir el nuevo código (sin necesidad de desactivar/reactivar)
+  TTB_WebProg_DB::run_migrations();
 
   // Cron de recordatorios de revisiones diseños
   TTB_WebRev_Cron::register();

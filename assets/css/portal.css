@@ -130,25 +130,115 @@ select.ttb-input {
 .ttb-alert--error   { background: #fff1f2; border-color: #fecdd3; }
 .ttb-alert--success { background: #ecfdf5; border-color: #a7f3d0; }
 
-/* ── Tabs ── */
-.ttb-container { margin-top: 10px; }
-.ttb-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
-.ttb-tab {
+/* ════════════════════════════════════════
+   PESTAÑAS PRINCIPALES (con línea inferior)
+   ════════════════════════════════════════ */
+
+.ttb-tabs--main {
+  display: flex;
+  gap: 0;
+  flex-wrap: wrap;
+  border-bottom: 2px solid #f0e8ef;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.ttb-tab--main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ttb-muted);
   text-decoration: none;
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--ttb-border);
-  background: #fff;
-  color: var(--ttb-text);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  transition: color .2s ease, background .2s ease, border-color .2s ease;
+  white-space: nowrap;
+}
+
+.ttb-tab--main:hover {
+  color: var(--ttb-pink);
+  background: rgba(215,33,115,.06);
+}
+
+.ttb-tab--main.ttb-tab--active {
+  color: var(--ttb-pink);
+  border-bottom-color: var(--ttb-pink);
+  background: rgba(215,33,115,.07);
   font-weight: 800;
 }
-.ttb-tab--active {
+
+/* Icono SVG dentro de pestaña principal */
+.ttb-tab-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  opacity: .6;
+  transition: opacity .2s ease;
+  vertical-align: middle;
+}
+.ttb-tab--main:hover .ttb-tab-icon,
+.ttb-tab--main.ttb-tab--active .ttb-tab-icon {
+  opacity: 1;
+}
+
+/* ════════════════════════════════════════
+   SUB-PESTAÑAS (píldoras con punto activo)
+   ════════════════════════════════════════ */
+
+.ttb-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 18px 0 10px;
+}
+
+/* Solo aplica a sub-tabs (no a las principales) */
+.ttb-tabs:not(.ttb-tabs--main) .ttb-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--ttb-border);
+  background: #fff;
+  color: var(--ttb-muted);
+  font-weight: 700;
+  font-size: 13px;
+  transition: color .2s ease, border-color .2s ease, background .2s ease;
+  white-space: nowrap;
+}
+
+.ttb-tabs:not(.ttb-tabs--main) .ttb-tab:hover {
+  border-color: rgba(215,33,115,.35);
+  color: var(--ttb-pink);
+  background: rgba(215,33,115,.05);
+}
+
+.ttb-tabs:not(.ttb-tabs--main) .ttb-tab.ttb-tab--active {
   background: rgba(215,33,115,.10);
-  border-color: rgba(215,33,115,.25);
+  border-color: rgba(215,33,115,.30);
   color: var(--ttb-pink);
 }
 
+/* Icono en sub-tabs */
+.ttb-tabs:not(.ttb-tabs--main) .ttb-tab .ttb-tab-icon {
+  width: 14px;
+  height: 14px;
+  opacity: .55;
+}
+.ttb-tabs:not(.ttb-tabs--main) .ttb-tab:hover .ttb-tab-icon,
+.ttb-tabs:not(.ttb-tabs--main) .ttb-tab.ttb-tab--active .ttb-tab-icon {
+  opacity: 1;
+}
+
 /* ── Grid ── */
+.ttb-container { margin-top: 10px; }
 .ttb-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 900px) { .ttb-grid2 { grid-template-columns: 1fr; } }
 
@@ -249,7 +339,6 @@ select.ttb-input {
   to   { opacity:1; transform: translateY(0)    scale(1);   }
 }
 
-/* Franja superior rosa */
 .ttb-modal::before {
   content: '';
   position: absolute;
@@ -258,7 +347,6 @@ select.ttb-input {
   background: linear-gradient(90deg, var(--ttb-pink), #e63a86);
 }
 
-/* Emoji grande */
 .ttb-modal__emoji {
   font-size: 54px;
   line-height: 1;
@@ -311,7 +399,6 @@ select.ttb-input {
   border-radius: 50%;
   animation: ttbConfettiFall 1.4s ease-out both;
 }
-/* Colores y posiciones variadas */
 .ttb-confetti-dot:nth-child(1)  { left:10%; top:-10px; background:#D72173; animation-delay:.05s; }
 .ttb-confetti-dot:nth-child(2)  { left:20%; top:-10px; background:#fbbf24; animation-delay:.12s; width:6px; height:6px; }
 .ttb-confetti-dot:nth-child(3)  { left:30%; top:-10px; background:#34d399; animation-delay:.08s; }
@@ -337,7 +424,6 @@ select.ttb-input {
   100% { transform: translateY(160px) rotate(360deg) scale(.6); opacity:0; }
 }
 
-/* ── Responsive modal ── */
 @media (max-width: 480px) {
   .ttb-modal { padding: 32px 20px 28px; }
   .ttb-modal__title { font-size: 20px; }
@@ -388,7 +474,7 @@ select.ttb-input {
    MODAL DE EDICIÓN DE CLIENTE
    ════════════════════════════════════════ */
 .ttb-edit-modal-overlay {
-  display: none; /* se muestra via JS cuando hay edit_client en la URL */
+  display: none;
 }
 
 .ttb-edit-modal {
@@ -403,14 +489,11 @@ select.ttb-input {
   color: var(--ttb-text);
 }
 
-/* En móvil la tabla de acciones se apila */
 @media (max-width: 700px) {
   .ttb-row-actions { flex-direction: column; align-items: flex-start; }
   .ttb-table th:nth-child(3),
-  .ttb-table td:nth-child(3) { display: none; } /* oculta columna Usuario en móvil */
+  .ttb-table td:nth-child(3) { display: none; }
 }
-
-
 
 /* ════════════════════════════════════════
    REDES SOCIALES — estados adicionales
@@ -418,3 +501,18 @@ select.ttb-input {
 .ttb-status--draft   { background:#f3f4f6; color:#374151; border:1px solid #e5e7eb; }
 .ttb-status--danger  { background:#fff1f2; color:#be123c; border:1px solid #fecdd3; }
 .ttb-status--purple  { background:#fdf4ff; color:#7e22ce; border:1px solid #e9d5ff; }
+
+/* ════════════════════════════════════════
+   RESPONSIVE TABS
+   ════════════════════════════════════════ */
+@media (max-width: 700px) {
+  .ttb-tab--main {
+    padding: 10px 13px;
+    font-size: 12.5px;
+    gap: 6px;
+  }
+  .ttb-tab--main .ttb-tab-icon {
+    width: 14px;
+    height: 14px;
+  }
+}

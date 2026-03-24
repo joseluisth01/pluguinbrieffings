@@ -7,9 +7,11 @@ if (class_exists('TTB_WebRev_Client')) return;
  * Renderiza la zona pública del cliente (magic link) para revisiones web.
  * Se invoca desde TTB_Router cuando ?webrev=TOKEN está en la URL.
  */
-class TTB_WebRev_Client {
+class TTB_WebRev_Client
+{
 
-  public static function render($token) {
+  public static function render($token)
+  {
     $project = TTB_WebRev_DB::get_project_by_token($token);
 
     if (!$project) {
@@ -46,7 +48,7 @@ class TTB_WebRev_Client {
     $round_count = count($revisions);
     $next_round  = $round_count + 1;
 
-    ?>
+?>
     <div class="ttb-container">
 
       <!-- Cabecera del proyecto -->
@@ -78,11 +80,11 @@ class TTB_WebRev_Client {
           ">
             <?php if ($is_figma): ?>
               <svg width="48" height="48" viewBox="0 0 38 57" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin:0 auto 16px;display:block">
-                <path d="M19 28.5C19 25.9804 20.0009 23.5641 21.7825 21.7825C23.5641 20.0009 25.9804 19 28.5 19C31.0196 19 33.4359 20.0009 35.2175 21.7825C36.9991 23.5641 38 25.9804 38 28.5C38 31.0196 36.9991 33.4359 35.2175 35.2175C33.4359 36.9991 31.0196 38 28.5 38H19V28.5Z" fill="#1ABCFE"/>
-                <path d="M0 47.5C0 44.9804 1.00089 42.5641 2.78249 40.7825C4.56408 39.0009 6.98044 38 9.5 38H19V47.5C19 50.0196 17.9991 52.4359 16.2175 54.2175C14.4359 55.9991 12.0196 57 9.5 57C6.98044 57 4.56408 55.9991 2.78249 54.2175C1.00089 52.4359 0 50.0196 0 47.5Z" fill="#0ACF83"/>
-                <path d="M19 0V19H28.5C31.0196 19 33.4359 17.9991 35.2175 16.2175C36.9991 14.4359 38 12.0196 38 9.5C38 6.98044 36.9991 4.56408 35.2175 2.78249C33.4359 1.00089 31.0196 0 28.5 0H19Z" fill="#FF7262"/>
-                <path d="M0 9.5C0 12.0196 1.00089 14.4359 2.78249 16.2175C4.56408 17.9991 6.98044 19 9.5 19H19V0H9.5C6.98044 0 4.56408 1.00089 2.78249 2.78249C1.00089 4.56408 0 6.98044 0 9.5Z" fill="#F24E1E"/>
-                <path d="M0 28.5C0 31.0196 1.00089 33.4359 2.78249 35.2175C4.56408 17.9991 6.98044 38 9.5 38H19V19H9.5C6.98044 19 4.56408 20.0009 2.78249 21.7825C1.00089 23.5641 0 25.9804 0 28.5Z" fill="#A259FF"/>
+                <path d="M19 28.5C19 25.9804 20.0009 23.5641 21.7825 21.7825C23.5641 20.0009 25.9804 19 28.5 19C31.0196 19 33.4359 20.0009 35.2175 21.7825C36.9991 23.5641 38 25.9804 38 28.5C38 31.0196 36.9991 33.4359 35.2175 35.2175C33.4359 36.9991 31.0196 38 28.5 38H19V28.5Z" fill="#1ABCFE" />
+                <path d="M0 47.5C0 44.9804 1.00089 42.5641 2.78249 40.7825C4.56408 39.0009 6.98044 38 9.5 38H19V47.5C19 50.0196 17.9991 52.4359 16.2175 54.2175C14.4359 55.9991 12.0196 57 9.5 57C6.98044 57 4.56408 55.9991 2.78249 54.2175C1.00089 52.4359 0 50.0196 0 47.5Z" fill="#0ACF83" />
+                <path d="M19 0V19H28.5C31.0196 19 33.4359 17.9991 35.2175 16.2175C36.9991 14.4359 38 12.0196 38 9.5C38 6.98044 36.9991 4.56408 35.2175 2.78249C33.4359 1.00089 31.0196 0 28.5 0H19Z" fill="#FF7262" />
+                <path d="M0 9.5C0 12.0196 1.00089 14.4359 2.78249 16.2175C4.56408 17.9991 6.98044 19 9.5 19H19V0H9.5C6.98044 0 4.56408 1.00089 2.78249 2.78249C1.00089 4.56408 0 6.98044 0 9.5Z" fill="#F24E1E" />
+                <path d="M0 28.5C0 31.0196 1.00089 33.4359 2.78249 35.2175C4.56408 17.9991 6.98044 38 9.5 38H19V19H9.5C6.98044 19 4.56408 20.0009 2.78249 21.7825C1.00089 23.5641 0 25.9804 0 28.5Z" fill="#A259FF" />
               </svg>
               <p style="margin:0 0 8px;font-size:20px;font-weight:900;color:var(--ttb-text)">Tu diseño está en Figma</p>
               <p style="margin:0 0 28px;font-size:15px;color:var(--ttb-muted);line-height:1.6">
@@ -97,14 +99,26 @@ class TTB_WebRev_Client {
               </p>
             <?php endif; ?>
 
-            <a href="<?php echo esc_url($project->figma_url); ?>" target="_blank" rel="noopener"
-               style="display:inline-flex;align-items:center;gap:10px;
-                      background:linear-gradient(135deg,#D72173 0%,#a8005a 100%);
-                      color:#fff;text-decoration:none;font-weight:900;font-size:17px;
-                      padding:18px 40px;border-radius:14px;
-                      box-shadow:0 8px 24px rgba(215,33,115,.30)">
-              🔗 <?php echo $is_figma ? 'Abrir diseño en Figma' : 'Ver diseño'; ?>
-            </a>
+            <div style="display:flex;flex-wrap:wrap;gap:14px;justify-content:center;align-items:center">
+              <a href="<?php echo esc_url($project->figma_url); ?>" target="_blank" rel="noopener"
+                style="display:inline-flex;align-items:center;gap:10px;
+                        background:linear-gradient(135deg,#D72173 0%,#a8005a 100%);
+                        color:#fff;text-decoration:none;font-weight:900;font-size:17px;
+                        padding:18px 40px;border-radius:14px;
+                        box-shadow:0 8px 24px rgba(215,33,115,.30)">
+                🖥️ <?php echo $is_figma ? 'Abrir diseño desktop' : 'Ver diseño'; ?>
+              </a>
+              <?php if (!empty($project->figma_url_mobile)): ?>
+                <a href="<?php echo esc_url($project->figma_url_mobile); ?>" target="_blank" rel="noopener"
+                  style="display:inline-flex;align-items:center;gap:10px;
+                          background:#fff;border:2px solid rgba(215,33,115,.35);
+                          color:#D72173;text-decoration:none;font-weight:900;font-size:17px;
+                          padding:18px 40px;border-radius:14px;
+                          box-shadow:0 4px 12px rgba(0,0,0,.08)">
+                  📱 Abrir diseño mobile
+                </a>
+              <?php endif; ?>
+            </div>
 
             <p style="margin:18px 0 0;font-size:12px;color:var(--ttb-muted)">
               Se abrirá en una nueva pestaña
@@ -187,11 +201,11 @@ class TTB_WebRev_Client {
           <div style="display:flex;flex-direction:column;gap:12px">
             <?php foreach ($revisions as $rev): ?>
               <?php
-                $is_accepted = $rev->type === 'accept';
-                $bg  = $is_accepted ? '#ecfdf5' : '#fffbeb';
-                $bc  = $is_accepted ? '#6ee7b7' : '#fcd34d';
-                $ico = $is_accepted ? '✅' : '✏️';
-                $lbl = $is_accepted ? 'Diseño aceptado' : 'Cambios solicitados — Ronda #' . $rev->round;
+              $is_accepted = $rev->type === 'accept';
+              $bg  = $is_accepted ? '#ecfdf5' : '#fffbeb';
+              $bc  = $is_accepted ? '#6ee7b7' : '#fcd34d';
+              $ico = $is_accepted ? '✅' : '✏️';
+              $lbl = $is_accepted ? 'Diseño aceptado' : 'Cambios solicitados — Ronda #' . $rev->round;
               ?>
               <div style="background:<?php echo $bg; ?>;border:1.5px solid <?php echo $bc; ?>;border-radius:14px;padding:16px 20px">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
@@ -200,8 +214,8 @@ class TTB_WebRev_Client {
                 </div>
                 <?php if ($rev->message || $rev->images): ?>
                   <?php
-                    $blocks = json_decode((string)$rev->images, true);
-                    $is_blocks = is_array($blocks) && !empty($blocks) && isset($blocks[0]['type']);
+                  $blocks = json_decode((string)$rev->images, true);
+                  $is_blocks = is_array($blocks) && !empty($blocks) && isset($blocks[0]['type']);
                   ?>
                   <?php if ($is_blocks): ?>
                     <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
@@ -215,8 +229,8 @@ class TTB_WebRev_Client {
                             <?php if (!empty($bl['image_url'])): ?>
                               <a href="<?php echo esc_url($bl['image_url']); ?>" target="_blank">
                                 <img src="<?php echo esc_url($bl['image_url']); ?>"
-                                     style="width:100%;max-height:320px;object-fit:contain;display:block;background:#f4f4f4"
-                                     alt="Adjunto">
+                                  style="width:100%;max-height:320px;object-fit:contain;display:block;background:#f4f4f4"
+                                  alt="Adjunto">
                               </a>
                             <?php endif; ?>
                             <?php if (!empty($bl['caption'])): ?>
@@ -233,8 +247,8 @@ class TTB_WebRev_Client {
                       <p style="margin:10px 0 0;font-size:14px;color:var(--ttb-text);line-height:1.6;white-space:pre-line"><?php echo nl2br(esc_html($rev->message)); ?></p>
                     <?php endif; ?>
                     <?php
-                      $old_images = json_decode((string)$rev->images, true);
-                      if (is_array($old_images) && $old_images):
+                    $old_images = json_decode((string)$rev->images, true);
+                    if (is_array($old_images) && $old_images):
                     ?>
                       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
                         <?php foreach ($old_images as $img_url): ?>
@@ -255,334 +269,532 @@ class TTB_WebRev_Client {
     </div>
 
     <style>
-    .ttbwr-tab-btn--active {
-      background: rgba(215,33,115,.10) !important;
-      border-color: rgba(215,33,115,.35) !important;
-      color: var(--ttb-pink) !important;
-    }
-    .ttbwr-block {
-      border: 1.5px solid var(--ttb-border);
-      border-radius: 14px;
-      background: #fff;
-      margin-bottom: 14px;
-      overflow: hidden;
-      transition: box-shadow .2s;
-    }
-    .ttbwr-block:focus-within { box-shadow: 0 0 0 3px rgba(215,33,115,.12); border-color: rgba(215,33,115,.4); }
-    .ttbwr-block-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 14px;
-      background: #f9fafb;
-      border-bottom: 1px solid var(--ttb-border);
-      gap: 8px;
-    }
-    .ttbwr-block-label { font-size: 12px; font-weight: 900; color: var(--ttb-muted); text-transform: uppercase; letter-spacing: .06em; }
-    .ttbwr-block-actions { display: flex; gap: 6px; }
-    .ttbwr-block-btn {
-      background: none; border: 1px solid var(--ttb-border); border-radius: 8px;
-      padding: 4px 8px; font-size: 13px; cursor: pointer; color: var(--ttb-muted);
-      transition: background .15s, color .15s;
-    }
-    .ttbwr-block-btn:hover { background: #f0f0f0; color: var(--ttb-text); }
-    .ttbwr-block-btn--delete:hover { background: #fff1f2; color: #e11d48; border-color: #fecdd3; }
-    .ttbwr-wysiwyg-bar {
-      display: flex; flex-wrap: wrap; gap: 2px;
-      padding: 8px 10px; background: #f9fafb; border-bottom: 1px solid var(--ttb-border);
-    }
-    .ttbwr-wysiwyg-bar button {
-      background: none; border: 1px solid transparent; border-radius: 6px;
-      padding: 4px 8px; font-size: 13px; font-weight: 700; cursor: pointer;
-      color: var(--ttb-text); line-height: 1.4; min-width: 28px;
-      transition: background .12s, border-color .12s;
-    }
-    .ttbwr-wysiwyg-bar button:hover { background: #e5e7eb; border-color: #d1d5db; }
-    .ttbwr-wysiwyg-bar button.active { background: rgba(215,33,115,.12); border-color: rgba(215,33,115,.3); color: var(--ttb-pink); }
-    .ttbwr-wysiwyg-bar .ttbwr-sep { width: 1px; background: var(--ttb-border); margin: 2px 4px; align-self: stretch; }
-    .ttbwr-editor {
-      min-height: 120px; padding: 14px 16px; outline: none;
-      font-size: 15px; line-height: 1.7; color: var(--ttb-text);
-    }
-    .ttbwr-editor:empty::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
-    .ttbwr-editor ul, .ttbwr-editor ol { padding-left: 22px; margin: 6px 0; }
-    .ttbwr-editor blockquote { border-left: 3px solid var(--ttb-pink); margin: 8px 0; padding: 4px 12px; color: var(--ttb-muted); font-style: italic; }
-    .ttbwr-img-block { padding: 14px 16px; }
-    .ttbwr-img-dropzone {
-      border: 2px dashed var(--ttb-border); border-radius: 12px; padding: 28px 20px;
-      text-align: center; cursor: pointer; background: #fafafa; margin-bottom: 12px;
-      transition: border-color .2s, background .2s;
-    }
-    .ttbwr-img-dropzone:hover, .ttbwr-img-dropzone.dragover { border-color: var(--ttb-pink); background: rgba(215,33,115,.03); }
-    .ttbwr-img-preview { position: relative; display: inline-block; margin-bottom: 12px; }
-    .ttbwr-img-preview img { max-width: 100%; max-height: 280px; border-radius: 10px; border: 1px solid var(--ttb-border); display: block; }
-    .ttbwr-img-preview-remove {
-      position: absolute; top: -8px; right: -8px;
-      background: #e11d48; color: #fff; border: none; border-radius: 50%;
-      width: 22px; height: 22px; font-size: 12px; font-weight: 900; cursor: pointer; line-height: 1;
-    }
-    .ttbwr-img-caption {
-      width: 100%; border: 1px solid var(--ttb-border); border-radius: 10px;
-      padding: 10px 12px; font-size: 14px; line-height: 1.5; resize: vertical;
-      min-height: 72px; font-family: inherit; color: var(--ttb-text); outline: none;
-      transition: border-color .2s, box-shadow .2s;
-    }
-    .ttbwr-img-caption:focus { border-color: var(--ttb-pink); box-shadow: 0 0 0 3px rgba(215,33,115,.10); }
+      .ttbwr-tab-btn--active {
+        background: rgba(215, 33, 115, .10) !important;
+        border-color: rgba(215, 33, 115, .35) !important;
+        color: var(--ttb-pink) !important;
+      }
+
+      .ttbwr-block {
+        border: 1.5px solid var(--ttb-border);
+        border-radius: 14px;
+        background: #fff;
+        margin-bottom: 14px;
+        overflow: hidden;
+        transition: box-shadow .2s;
+      }
+
+      .ttbwr-block:focus-within {
+        box-shadow: 0 0 0 3px rgba(215, 33, 115, .12);
+        border-color: rgba(215, 33, 115, .4);
+      }
+
+      .ttbwr-block-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        background: #f9fafb;
+        border-bottom: 1px solid var(--ttb-border);
+        gap: 8px;
+      }
+
+      .ttbwr-block-label {
+        font-size: 12px;
+        font-weight: 900;
+        color: var(--ttb-muted);
+        text-transform: uppercase;
+        letter-spacing: .06em;
+      }
+
+      .ttbwr-block-actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .ttbwr-block-btn {
+        background: none;
+        border: 1px solid var(--ttb-border);
+        border-radius: 8px;
+        padding: 4px 8px;
+        font-size: 13px;
+        cursor: pointer;
+        color: var(--ttb-muted);
+        transition: background .15s, color .15s;
+      }
+
+      .ttbwr-block-btn:hover {
+        background: #f0f0f0;
+        color: var(--ttb-text);
+      }
+
+      .ttbwr-block-btn--delete:hover {
+        background: #fff1f2;
+        color: #e11d48;
+        border-color: #fecdd3;
+      }
+
+      .ttbwr-wysiwyg-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        padding: 8px 10px;
+        background: #f9fafb;
+        border-bottom: 1px solid var(--ttb-border);
+      }
+
+      .ttbwr-wysiwyg-bar button {
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        color: var(--ttb-text);
+        line-height: 1.4;
+        min-width: 28px;
+        transition: background .12s, border-color .12s;
+      }
+
+      .ttbwr-wysiwyg-bar button:hover {
+        background: #e5e7eb;
+        border-color: #d1d5db;
+      }
+
+      .ttbwr-wysiwyg-bar button.active {
+        background: rgba(215, 33, 115, .12);
+        border-color: rgba(215, 33, 115, .3);
+        color: var(--ttb-pink);
+      }
+
+      .ttbwr-wysiwyg-bar .ttbwr-sep {
+        width: 1px;
+        background: var(--ttb-border);
+        margin: 2px 4px;
+        align-self: stretch;
+      }
+
+      .ttbwr-editor {
+        min-height: 120px;
+        padding: 14px 16px;
+        outline: none;
+        font-size: 15px;
+        line-height: 1.7;
+        color: var(--ttb-text);
+      }
+
+      .ttbwr-editor:empty::before {
+        content: attr(data-placeholder);
+        color: #9ca3af;
+        pointer-events: none;
+      }
+
+      .ttbwr-editor ul,
+      .ttbwr-editor ol {
+        padding-left: 22px;
+        margin: 6px 0;
+      }
+
+      .ttbwr-editor blockquote {
+        border-left: 3px solid var(--ttb-pink);
+        margin: 8px 0;
+        padding: 4px 12px;
+        color: var(--ttb-muted);
+        font-style: italic;
+      }
+
+      .ttbwr-img-block {
+        padding: 14px 16px;
+      }
+
+      .ttbwr-img-dropzone {
+        border: 2px dashed var(--ttb-border);
+        border-radius: 12px;
+        padding: 28px 20px;
+        text-align: center;
+        cursor: pointer;
+        background: #fafafa;
+        margin-bottom: 12px;
+        transition: border-color .2s, background .2s;
+      }
+
+      .ttbwr-img-dropzone:hover,
+      .ttbwr-img-dropzone.dragover {
+        border-color: var(--ttb-pink);
+        background: rgba(215, 33, 115, .03);
+      }
+
+      .ttbwr-img-preview {
+        position: relative;
+        display: inline-block;
+        margin-bottom: 12px;
+      }
+
+      .ttbwr-img-preview img {
+        max-width: 100%;
+        max-height: 280px;
+        border-radius: 10px;
+        border: 1px solid var(--ttb-border);
+        display: block;
+      }
+
+      .ttbwr-img-preview-remove {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        background: #e11d48;
+        color: #fff;
+        border: none;
+        border-radius: 50%;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        font-weight: 900;
+        cursor: pointer;
+        line-height: 1;
+      }
+
+      .ttbwr-img-caption {
+        width: 100%;
+        border: 1px solid var(--ttb-border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+        line-height: 1.5;
+        resize: vertical;
+        min-height: 72px;
+        font-family: inherit;
+        color: var(--ttb-text);
+        outline: none;
+        transition: border-color .2s, box-shadow .2s;
+      }
+
+      .ttbwr-img-caption:focus {
+        border-color: var(--ttb-pink);
+        box-shadow: 0 0 0 3px rgba(215, 33, 115, .10);
+      }
     </style>
 
     <script>
-    (function(){
-      var MAX_MB    = <?php echo (int)get_option('ttb_webrev_max_filesize', 5); ?>;
-      var MAX_FILES = <?php echo (int)get_option('ttb_webrev_max_files', 10); ?>;
-      var blockCount = 0;
+      (function() {
+        var MAX_MB = <?php echo (int)get_option('ttb_webrev_max_filesize', 5); ?>;
+        var MAX_FILES = <?php echo (int)get_option('ttb_webrev_max_files', 10); ?>;
+        var blockCount = 0;
 
-      document.querySelectorAll('.ttbwr-tab-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          var target = btn.getAttribute('data-tab');
-          document.querySelectorAll('.ttbwr-tab-btn').forEach(function(b){ b.classList.remove('ttbwr-tab-btn--active'); });
-          btn.classList.add('ttbwr-tab-btn--active');
-          document.getElementById('ttbwr-panel-accept').style.display  = (target === 'accept')  ? 'block' : 'none';
-          document.getElementById('ttbwr-panel-changes').style.display = (target === 'changes') ? 'block' : 'none';
-        });
-      });
-
-      document.getElementById('ttbwr-add-text').addEventListener('click', function(){ addTextBlock(); });
-      document.getElementById('ttbwr-add-image').addEventListener('click', function(){ addImageBlock(); });
-
-      function addTextBlock(initialHtml) {
-        blockCount++;
-        var id = 'ttbwr-block-' + blockCount;
-        var div = document.createElement('div');
-        div.className = 'ttbwr-block';
-        div.setAttribute('data-type', 'text');
-        div.setAttribute('data-id', id);
-        div.innerHTML =
-          '<div class="ttbwr-block-header">'
-          + '<span class="ttbwr-block-label">✏️ Bloque de texto</span>'
-          + '<div class="ttbwr-block-actions">'
-          + '<button type="button" class="ttbwr-block-btn" data-move="up" title="Subir">↑</button>'
-          + '<button type="button" class="ttbwr-block-btn" data-move="down" title="Bajar">↓</button>'
-          + '<button type="button" class="ttbwr-block-btn ttbwr-block-btn--delete" data-delete="1" title="Eliminar bloque">✕</button>'
-          + '</div>'
-          + '</div>'
-          + '<div class="ttbwr-wysiwyg-bar">'
-          + '<button type="button" data-cmd="bold"><b>N</b></button>'
-          + '<button type="button" data-cmd="italic"><i>C</i></button>'
-          + '<button type="button" data-cmd="underline"><u>S</u></button>'
-          + '<span class="ttbwr-sep"></span>'
-          + '<button type="button" data-cmd="insertUnorderedList">• Lista</button>'
-          + '<button type="button" data-cmd="insertOrderedList">1. Lista</button>'
-          + '<span class="ttbwr-sep"></span>'
-          + '<button type="button" data-cmd="formatBlock|<blockquote>">❝ Cita</button>'
-          + '<button type="button" data-cmd="formatBlock|<p>">¶ Normal</button>'
-          + '<span class="ttbwr-sep"></span>'
-          + '<button type="button" data-cmd="removeFormat">✕ Formato</button>'
-          + '</div>'
-          + '<div class="ttbwr-editor" contenteditable="true" data-placeholder="Escribe aquí los cambios que necesitas con todo el detalle que quieras..."></div>';
-
-        getContainer().appendChild(div);
-        var editor = div.querySelector('.ttbwr-editor');
-        if (initialHtml) editor.innerHTML = initialHtml;
-
-        div.querySelectorAll('.ttbwr-wysiwyg-bar button').forEach(function(btn){
-          btn.addEventListener('mousedown', function(e){
-            e.preventDefault();
-            var cmd = btn.getAttribute('data-cmd');
-            if (cmd.indexOf('|') !== -1) {
-              var parts = cmd.split('|');
-              document.execCommand(parts[0], false, parts[1]);
-            } else {
-              document.execCommand(cmd, false, null);
-            }
-            editor.focus();
+        document.querySelectorAll('.ttbwr-tab-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var target = btn.getAttribute('data-tab');
+            document.querySelectorAll('.ttbwr-tab-btn').forEach(function(b) {
+              b.classList.remove('ttbwr-tab-btn--active');
+            });
+            btn.classList.add('ttbwr-tab-btn--active');
+            document.getElementById('ttbwr-panel-accept').style.display = (target === 'accept') ? 'block' : 'none';
+            document.getElementById('ttbwr-panel-changes').style.display = (target === 'changes') ? 'block' : 'none';
           });
         });
 
-        editor.addEventListener('keyup', updateToolbar);
-        editor.addEventListener('mouseup', updateToolbar);
-        function updateToolbar() {
-          div.querySelectorAll('.ttbwr-wysiwyg-bar button[data-cmd]').forEach(function(b){
-            var cmd = b.getAttribute('data-cmd').split('|')[0];
-            try { b.classList.toggle('active', document.queryCommandState(cmd)); } catch(e){}
+        document.getElementById('ttbwr-add-text').addEventListener('click', function() {
+          addTextBlock();
+        });
+        document.getElementById('ttbwr-add-image').addEventListener('click', function() {
+          addImageBlock();
+        });
+
+        function addTextBlock(initialHtml) {
+          blockCount++;
+          var id = 'ttbwr-block-' + blockCount;
+          var div = document.createElement('div');
+          div.className = 'ttbwr-block';
+          div.setAttribute('data-type', 'text');
+          div.setAttribute('data-id', id);
+          div.innerHTML =
+            '<div class="ttbwr-block-header">' +
+            '<span class="ttbwr-block-label">✏️ Bloque de texto</span>' +
+            '<div class="ttbwr-block-actions">' +
+            '<button type="button" class="ttbwr-block-btn" data-move="up" title="Subir">↑</button>' +
+            '<button type="button" class="ttbwr-block-btn" data-move="down" title="Bajar">↓</button>' +
+            '<button type="button" class="ttbwr-block-btn ttbwr-block-btn--delete" data-delete="1" title="Eliminar bloque">✕</button>' +
+            '</div>' +
+            '</div>' +
+            '<div class="ttbwr-wysiwyg-bar">' +
+            '<button type="button" data-cmd="bold"><b>N</b></button>' +
+            '<button type="button" data-cmd="italic"><i>C</i></button>' +
+            '<button type="button" data-cmd="underline"><u>S</u></button>' +
+            '<span class="ttbwr-sep"></span>' +
+            '<button type="button" data-cmd="insertUnorderedList">• Lista</button>' +
+            '<button type="button" data-cmd="insertOrderedList">1. Lista</button>' +
+            '<span class="ttbwr-sep"></span>' +
+            '<button type="button" data-cmd="formatBlock|<blockquote>">❝ Cita</button>' +
+            '<button type="button" data-cmd="formatBlock|<p>">¶ Normal</button>' +
+            '<span class="ttbwr-sep"></span>' +
+            '<button type="button" data-cmd="removeFormat">✕ Formato</button>' +
+            '</div>' +
+            '<div class="ttbwr-editor" contenteditable="true" data-placeholder="Escribe aquí los cambios que necesitas con todo el detalle que quieras..."></div>';
+
+          getContainer().appendChild(div);
+          var editor = div.querySelector('.ttbwr-editor');
+          if (initialHtml) editor.innerHTML = initialHtml;
+
+          div.querySelectorAll('.ttbwr-wysiwyg-bar button').forEach(function(btn) {
+            btn.addEventListener('mousedown', function(e) {
+              e.preventDefault();
+              var cmd = btn.getAttribute('data-cmd');
+              if (cmd.indexOf('|') !== -1) {
+                var parts = cmd.split('|');
+                document.execCommand(parts[0], false, parts[1]);
+              } else {
+                document.execCommand(cmd, false, null);
+              }
+              editor.focus();
+            });
+          });
+
+          editor.addEventListener('keyup', updateToolbar);
+          editor.addEventListener('mouseup', updateToolbar);
+
+          function updateToolbar() {
+            div.querySelectorAll('.ttbwr-wysiwyg-bar button[data-cmd]').forEach(function(b) {
+              var cmd = b.getAttribute('data-cmd').split('|')[0];
+              try {
+                b.classList.toggle('active', document.queryCommandState(cmd));
+              } catch (e) {}
+            });
+          }
+
+          bindBlockActions(div);
+          editor.focus();
+        }
+
+        function addImageBlock(initialSrc, initialCaption) {
+          blockCount++;
+          var id = 'ttbwr-block-' + blockCount;
+          var div = document.createElement('div');
+          div.className = 'ttbwr-block';
+          div.setAttribute('data-type', 'image');
+          div.setAttribute('data-id', id);
+          div.innerHTML =
+            '<div class="ttbwr-block-header">' +
+            '<span class="ttbwr-block-label">🖼️ Imagen + comentario</span>' +
+            '<div class="ttbwr-block-actions">' +
+            '<button type="button" class="ttbwr-block-btn" data-move="up" title="Subir">↑</button>' +
+            '<button type="button" class="ttbwr-block-btn" data-move="down" title="Bajar">↓</button>' +
+            '<button type="button" class="ttbwr-block-btn ttbwr-block-btn--delete" data-delete="1" title="Eliminar bloque">✕</button>' +
+            '</div>' +
+            '</div>' +
+            '<div class="ttbwr-img-block">' +
+            '<div class="ttbwr-img-dropzone" tabindex="0">' +
+            '<p style="margin:0 0 6px;font-size:28px">📎</p>' +
+            '<p style="margin:0 0 4px;font-weight:700;color:var(--ttb-text);font-size:14px">Arrastra una imagen o haz clic para seleccionar</p>' +
+            '<p style="margin:0;font-size:12px;color:var(--ttb-muted)">PNG, JPG, GIF, WEBP · Máx. ' + MAX_MB + ' MB</p>' +
+            '<input type="file" accept="image/*" style="display:none">' +
+            '</div>' +
+            '<textarea class="ttbwr-img-caption" placeholder="Describe qué quieres cambiar en esta imagen (sección, elemento, color, texto...)"></textarea>' +
+            '</div>';
+
+          getContainer().appendChild(div);
+
+          var dz = div.querySelector('.ttbwr-img-dropzone');
+          var input = div.querySelector('input[type=file]');
+          var caption = div.querySelector('.ttbwr-img-caption');
+
+          if (initialSrc) showPreview(div, dz, initialSrc);
+          if (initialCaption) caption.value = initialCaption;
+
+          dz.addEventListener('click', function() {
+            input.click();
+          });
+          dz.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') input.click();
+          });
+          dz.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            dz.classList.add('dragover');
+          });
+          dz.addEventListener('dragleave', function() {
+            dz.classList.remove('dragover');
+          });
+          dz.addEventListener('drop', function(e) {
+            e.preventDefault();
+            dz.classList.remove('dragover');
+            var file = e.dataTransfer.files[0];
+            if (file) loadFile(div, dz, file);
+          });
+          input.addEventListener('change', function() {
+            if (input.files[0]) loadFile(div, dz, input.files[0]);
+          });
+
+          bindBlockActions(div);
+        }
+
+        function loadFile(block, dz, file) {
+          if (!file.type.startsWith('image/')) {
+            alert('Solo se admiten imágenes.');
+            return;
+          }
+          if (file.size > MAX_MB * 1024 * 1024) {
+            alert('La imagen supera el límite de ' + MAX_MB + ' MB.');
+            return;
+          }
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            block.setAttribute('data-file-dataurl', e.target.result);
+            block.setAttribute('data-file-name', file.name);
+            block.setAttribute('data-file-type', file.type);
+            block.setAttribute('data-file-size', file.size);
+            showPreview(block, dz, e.target.result);
+          };
+          reader.readAsDataURL(file);
+        }
+
+        function showPreview(block, dz, src) {
+          dz.style.display = 'none';
+          var existing = block.querySelector('.ttbwr-img-preview');
+          if (existing) existing.remove();
+          var wrap = document.createElement('div');
+          wrap.className = 'ttbwr-img-preview';
+          var img = document.createElement('img');
+          img.src = src;
+          var rm = document.createElement('button');
+          rm.type = 'button';
+          rm.className = 'ttbwr-img-preview-remove';
+          rm.textContent = '✕';
+          rm.title = 'Quitar imagen';
+          rm.addEventListener('click', function() {
+            wrap.remove();
+            block.removeAttribute('data-file-dataurl');
+            block.removeAttribute('data-file-name');
+            dz.style.display = '';
+          });
+          wrap.appendChild(img);
+          wrap.appendChild(rm);
+          block.querySelector('.ttbwr-img-block').insertBefore(wrap, block.querySelector('.ttbwr-img-caption'));
+        }
+
+        function bindBlockActions(block) {
+          block.querySelector('[data-delete]').addEventListener('click', function() {
+            if (getContainer().querySelectorAll('.ttbwr-block').length <= 1) {
+              alert('Debe haber al menos un bloque de cambio.');
+              return;
+            }
+            block.remove();
+          });
+          block.querySelector('[data-move="up"]').addEventListener('click', function() {
+            var prev = block.previousElementSibling;
+            if (prev) getContainer().insertBefore(block, prev);
+          });
+          block.querySelector('[data-move="down"]').addEventListener('click', function() {
+            var next = block.nextElementSibling;
+            if (next) getContainer().insertBefore(next, block);
           });
         }
 
-        bindBlockActions(div);
-        editor.focus();
-      }
+        function getContainer() {
+          return document.getElementById('ttbwr-blocks-container');
+        }
 
-      function addImageBlock(initialSrc, initialCaption) {
-        blockCount++;
-        var id = 'ttbwr-block-' + blockCount;
-        var div = document.createElement('div');
-        div.className = 'ttbwr-block';
-        div.setAttribute('data-type', 'image');
-        div.setAttribute('data-id', id);
-        div.innerHTML =
-          '<div class="ttbwr-block-header">'
-          + '<span class="ttbwr-block-label">🖼️ Imagen + comentario</span>'
-          + '<div class="ttbwr-block-actions">'
-          + '<button type="button" class="ttbwr-block-btn" data-move="up" title="Subir">↑</button>'
-          + '<button type="button" class="ttbwr-block-btn" data-move="down" title="Bajar">↓</button>'
-          + '<button type="button" class="ttbwr-block-btn ttbwr-block-btn--delete" data-delete="1" title="Eliminar bloque">✕</button>'
-          + '</div>'
-          + '</div>'
-          + '<div class="ttbwr-img-block">'
-          + '<div class="ttbwr-img-dropzone" tabindex="0">'
-          + '<p style="margin:0 0 6px;font-size:28px">📎</p>'
-          + '<p style="margin:0 0 4px;font-weight:700;color:var(--ttb-text);font-size:14px">Arrastra una imagen o haz clic para seleccionar</p>'
-          + '<p style="margin:0;font-size:12px;color:var(--ttb-muted)">PNG, JPG, GIF, WEBP · Máx. ' + MAX_MB + ' MB</p>'
-          + '<input type="file" accept="image/*" style="display:none">'
-          + '</div>'
-          + '<textarea class="ttbwr-img-caption" placeholder="Describe qué quieres cambiar en esta imagen (sección, elemento, color, texto...)"></textarea>'
-          + '</div>';
+        addTextBlock();
 
-        getContainer().appendChild(div);
+        document.getElementById('ttbwr-changes-form').addEventListener('submit', function(e) {
+          e.preventDefault();
+          var blocks = [];
+          var imageFiles = [];
+          var container = getContainer();
+          var blockEls = container.querySelectorAll('.ttbwr-block');
+          var hasContent = false;
 
-        var dz      = div.querySelector('.ttbwr-img-dropzone');
-        var input   = div.querySelector('input[type=file]');
-        var caption = div.querySelector('.ttbwr-img-caption');
-
-        if (initialSrc)     showPreview(div, dz, initialSrc);
-        if (initialCaption) caption.value = initialCaption;
-
-        dz.addEventListener('click', function(){ input.click(); });
-        dz.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' ') input.click(); });
-        dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('dragover'); });
-        dz.addEventListener('dragleave', function(){ dz.classList.remove('dragover'); });
-        dz.addEventListener('drop', function(e){
-          e.preventDefault(); dz.classList.remove('dragover');
-          var file = e.dataTransfer.files[0];
-          if (file) loadFile(div, dz, file);
-        });
-        input.addEventListener('change', function(){
-          if (input.files[0]) loadFile(div, dz, input.files[0]);
-        });
-
-        bindBlockActions(div);
-      }
-
-      function loadFile(block, dz, file) {
-        if (!file.type.startsWith('image/')) { alert('Solo se admiten imágenes.'); return; }
-        if (file.size > MAX_MB * 1024 * 1024) { alert('La imagen supera el límite de ' + MAX_MB + ' MB.'); return; }
-        var reader = new FileReader();
-        reader.onload = function(e) {
-          block.setAttribute('data-file-dataurl', e.target.result);
-          block.setAttribute('data-file-name', file.name);
-          block.setAttribute('data-file-type', file.type);
-          block.setAttribute('data-file-size', file.size);
-          showPreview(block, dz, e.target.result);
-        };
-        reader.readAsDataURL(file);
-      }
-
-      function showPreview(block, dz, src) {
-        dz.style.display = 'none';
-        var existing = block.querySelector('.ttbwr-img-preview');
-        if (existing) existing.remove();
-        var wrap = document.createElement('div');
-        wrap.className = 'ttbwr-img-preview';
-        var img = document.createElement('img');
-        img.src = src;
-        var rm = document.createElement('button');
-        rm.type = 'button'; rm.className = 'ttbwr-img-preview-remove'; rm.textContent = '✕'; rm.title = 'Quitar imagen';
-        rm.addEventListener('click', function(){
-          wrap.remove();
-          block.removeAttribute('data-file-dataurl');
-          block.removeAttribute('data-file-name');
-          dz.style.display = '';
-        });
-        wrap.appendChild(img); wrap.appendChild(rm);
-        block.querySelector('.ttbwr-img-block').insertBefore(wrap, block.querySelector('.ttbwr-img-caption'));
-      }
-
-      function bindBlockActions(block) {
-        block.querySelector('[data-delete]').addEventListener('click', function(){
-          if (getContainer().querySelectorAll('.ttbwr-block').length <= 1) {
-            alert('Debe haber al menos un bloque de cambio.'); return;
-          }
-          block.remove();
-        });
-        block.querySelector('[data-move="up"]').addEventListener('click', function(){
-          var prev = block.previousElementSibling;
-          if (prev) getContainer().insertBefore(block, prev);
-        });
-        block.querySelector('[data-move="down"]').addEventListener('click', function(){
-          var next = block.nextElementSibling;
-          if (next) getContainer().insertBefore(next, block);
-        });
-      }
-
-      function getContainer() { return document.getElementById('ttbwr-blocks-container'); }
-
-      addTextBlock();
-
-      document.getElementById('ttbwr-changes-form').addEventListener('submit', function(e){
-        e.preventDefault();
-        var blocks = [];
-        var imageFiles = [];
-        var container  = getContainer();
-        var blockEls   = container.querySelectorAll('.ttbwr-block');
-        var hasContent = false;
-
-        blockEls.forEach(function(bl, idx) {
-          var type = bl.getAttribute('data-type');
-          if (type === 'text') {
-            var html  = bl.querySelector('.ttbwr-editor').innerHTML.trim();
-            var plain = bl.querySelector('.ttbwr-editor').innerText.trim();
-            if (plain) hasContent = true;
-            blocks.push({ type: 'text', html: html, idx: idx });
-          } else if (type === 'image') {
-            var caption = bl.querySelector('.ttbwr-img-caption').value.trim();
-            var dataUrl = bl.getAttribute('data-file-dataurl') || '';
-            var fname   = bl.getAttribute('data-file-name')    || '';
-            var ftype   = bl.getAttribute('data-file-type')    || '';
-            if (dataUrl || caption) hasContent = true;
-            blocks.push({ type: 'image', caption: caption, fileIndex: dataUrl ? imageFiles.length : -1, idx: idx });
-            if (dataUrl) imageFiles.push({ blockIndex: blocks.length - 1, dataUrl: dataUrl, name: fname, mimeType: ftype });
-          }
-        });
-
-        if (!hasContent) { alert('Añade al menos un comentario o imagen antes de enviar.'); return; }
-
-        document.getElementById('ttbwr_blocks_json').value = JSON.stringify(blocks);
-
-        var fd = new FormData(document.getElementById('ttbwr-changes-form'));
-        imageFiles.forEach(function(f, i) {
-          var arr = f.dataUrl.split(','), mime = arr[0].match(/:(.*?);/)[1];
-          var bstr = atob(arr[1]), n = bstr.length, u8 = new Uint8Array(n);
-          for (var j=0; j<n; j++) u8[j] = bstr.charCodeAt(j);
-          var blob = new Blob([u8], { type: mime });
-          fd.append('ttbwr_img_file_' + i, blob, f.name || ('imagen-' + (i+1) + '.jpg'));
-        });
-        fd.set('ttbwr_img_count', imageFiles.length);
-
-        var btn = document.getElementById('ttbwr-submit-btn');
-        btn.disabled = true; btn.textContent = '⏳ Enviando...';
-
-        fetch(window.location.href, { method: 'POST', body: fd })
-          .then(function(r){ return r.text(); })
-          .then(function(html){
-            var match = html.match(/window\.location\.replace\((.+?)\)/);
-            if (match) { window.location.replace(JSON.parse(match[1])); }
-            else { window.location.reload(); }
-          })
-          .catch(function(){
-            btn.disabled = false; btn.textContent = '📨 Enviar cambios';
-            alert('Error al enviar. Inténtalo de nuevo.');
+          blockEls.forEach(function(bl, idx) {
+            var type = bl.getAttribute('data-type');
+            if (type === 'text') {
+              var html = bl.querySelector('.ttbwr-editor').innerHTML.trim();
+              var plain = bl.querySelector('.ttbwr-editor').innerText.trim();
+              if (plain) hasContent = true;
+              blocks.push({
+                type: 'text',
+                html: html,
+                idx: idx
+              });
+            } else if (type === 'image') {
+              var caption = bl.querySelector('.ttbwr-img-caption').value.trim();
+              var dataUrl = bl.getAttribute('data-file-dataurl') || '';
+              var fname = bl.getAttribute('data-file-name') || '';
+              var ftype = bl.getAttribute('data-file-type') || '';
+              if (dataUrl || caption) hasContent = true;
+              blocks.push({
+                type: 'image',
+                caption: caption,
+                fileIndex: dataUrl ? imageFiles.length : -1,
+                idx: idx
+              });
+              if (dataUrl) imageFiles.push({
+                blockIndex: blocks.length - 1,
+                dataUrl: dataUrl,
+                name: fname,
+                mimeType: ftype
+              });
+            }
           });
-      });
-    })();
+
+          if (!hasContent) {
+            alert('Añade al menos un comentario o imagen antes de enviar.');
+            return;
+          }
+
+          document.getElementById('ttbwr_blocks_json').value = JSON.stringify(blocks);
+
+          var fd = new FormData(document.getElementById('ttbwr-changes-form'));
+          imageFiles.forEach(function(f, i) {
+            var arr = f.dataUrl.split(','),
+              mime = arr[0].match(/:(.*?);/)[1];
+            var bstr = atob(arr[1]),
+              n = bstr.length,
+              u8 = new Uint8Array(n);
+            for (var j = 0; j < n; j++) u8[j] = bstr.charCodeAt(j);
+            var blob = new Blob([u8], {
+              type: mime
+            });
+            fd.append('ttbwr_img_file_' + i, blob, f.name || ('imagen-' + (i + 1) + '.jpg'));
+          });
+          fd.set('ttbwr_img_count', imageFiles.length);
+
+          var btn = document.getElementById('ttbwr-submit-btn');
+          btn.disabled = true;
+          btn.textContent = '⏳ Enviando...';
+
+          fetch(window.location.href, {
+              method: 'POST',
+              body: fd
+            })
+            .then(function(r) {
+              return r.text();
+            })
+            .then(function(html) {
+              var match = html.match(/window\.location\.replace\((.+?)\)/);
+              if (match) {
+                window.location.replace(JSON.parse(match[1]));
+              } else {
+                window.location.reload();
+              }
+            })
+            .catch(function() {
+              btn.disabled = false;
+              btn.textContent = '📨 Enviar cambios';
+              alert('Error al enviar. Inténtalo de nuevo.');
+            });
+        });
+      })();
     </script>
-    <?php
+<?php
   }
 
-  private static function js_redirect($url) {
+  private static function js_redirect($url)
+  {
     echo '<script>window.location.replace(' . wp_json_encode(esc_url_raw($url)) . ');</script>';
     exit;
   }
 
-  private static function handle_submit($project) {
+  private static function handle_submit($project)
+  {
     $action = sanitize_text_field($_POST['ttb_webrev_action'] ?? '');
     $token  = sanitize_text_field($_POST['ttb_webrev_token']  ?? '');
 
@@ -602,7 +814,8 @@ class TTB_WebRev_Client {
       ], ['id' => $project->id]);
 
       $round = (int)$wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM $revisions_table WHERE project_id=%d", $project->id
+        "SELECT COUNT(*) FROM $revisions_table WHERE project_id=%d",
+        $project->id
       )) + 1;
 
       $wpdb->insert($revisions_table, [
@@ -624,7 +837,6 @@ class TTB_WebRev_Client {
       ]);
 
       self::js_redirect(TTB_WebRev_DB::client_url($token));
-
     } elseif ($action === 'changes') {
       if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_webrev_changes_' . $token)) {
         TTB_WebRev_DB::log($project->id, 'nonce_failed', 'client', ['action' => 'changes']);
@@ -640,15 +852,22 @@ class TTB_WebRev_Client {
 
       $has_content = false;
       foreach ($blocks as $b) {
-        if (!empty($b['html']) || !empty($b['caption'])) { $has_content = true; break; }
-        if (isset($b['fileIndex']) && $b['fileIndex'] >= 0) { $has_content = true; break; }
+        if (!empty($b['html']) || !empty($b['caption'])) {
+          $has_content = true;
+          break;
+        }
+        if (isset($b['fileIndex']) && $b['fileIndex'] >= 0) {
+          $has_content = true;
+          break;
+        }
       }
       if (!$has_content) {
         self::js_redirect(TTB_WebRev_DB::client_url($token));
       }
 
       $round = (int)$wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM $revisions_table WHERE project_id=%d", $project->id
+        "SELECT COUNT(*) FROM $revisions_table WHERE project_id=%d",
+        $project->id
       )) + 1;
 
       require_once ABSPATH . 'wp-admin/includes/file.php';
@@ -666,7 +885,7 @@ class TTB_WebRev_Client {
         if (empty($_FILES[$key]) || $_FILES[$key]['error'] !== UPLOAD_ERR_OK) continue;
         if ($_FILES[$key]['size'] > $max_mb * 1024 * 1024) continue;
         $type = $_FILES[$key]['type'];
-        if (!in_array($type, ['image/jpeg','image/png','image/gif','image/webp'], true)) continue;
+        if (!in_array($type, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true)) continue;
 
         $file_array = [
           'name'     => $_FILES[$key]['name'],
@@ -676,7 +895,7 @@ class TTB_WebRev_Client {
           'size'     => $_FILES[$key]['size'],
         ];
         $att_id = media_handle_sideload($file_array, 0, null, [
-          'post_title'  => 'WebRev - ' . $project->name . ' #' . $round . ' img' . ($i+1),
+          'post_title'  => 'WebRev - ' . $project->name . ' #' . $round . ' img' . ($i + 1),
           'post_status' => 'private',
         ]);
         if (!is_wp_error($att_id)) {
@@ -729,7 +948,8 @@ class TTB_WebRev_Client {
       ]);
 
       $revision = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM $revisions_table WHERE id=%d", $wpdb->insert_id
+        "SELECT * FROM $revisions_table WHERE id=%d",
+        $wpdb->insert_id
       ));
 
       (new TTB_WebRev_Mailer())->send_changes_alert($project, $revision);

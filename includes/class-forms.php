@@ -9,9 +9,6 @@ class TTB_Forms {
 
   /**
    * Devuelve el schema del formulario teniendo en cuenta el idioma del cliente.
-   *
-   * @param string $service  design|social|seo|web
-   * @param string $lang     'es' (por defecto) | 'en'
    */
   public static function get_schema($service, $lang = 'es') {
     $map = [
@@ -23,7 +20,6 @@ class TTB_Forms {
     $opt = $map[$service] ?? '';
     if (!$opt) return [];
 
-    // Si el idioma es inglés añadimos sufijo _en
     if ($lang === 'en') $opt .= '_en';
 
     $raw  = (string) get_option($opt, '');
@@ -46,7 +42,6 @@ class TTB_Forms {
       exit;
     }
 
-    // Obtener idioma del cliente
     $lang   = self::get_client_lang($client_id);
     $schema = self::get_schema($service, $lang);
 
@@ -87,7 +82,6 @@ class TTB_Forms {
       $answers[$id] = $val;
     }
 
-    // Errores → transients y redirect
     if ($errors) {
       set_transient('ttb_form_errors_' . $client_id . '_' . $service, $errors, 120);
       set_transient('ttb_form_values_' . $client_id . '_' . $service, $answers, 120);
@@ -124,10 +118,8 @@ class TTB_Forms {
         $client_name  = (string)$client->name;
         $client_email = (string)$client->email;
 
-        // Email al departamento (siempre en español internamente)
         (new TTB_Mailer())->send_department_alert($client_name, $client_email, $service);
 
-        // Subir a Google Drive
         try {
           $drive   = new TTB_Drive();
           $doc_url = $drive->create_briefing_doc($client_name, $service, $schema, $answers);
@@ -207,9 +199,6 @@ class TTB_Forms {
     return $svc ?: null;
   }
 
-  /**
-   * Obtiene el idioma configurado para un cliente ('es' por defecto).
-   */
   public static function get_client_lang($client_id) {
     global $wpdb;
     $table = TTB_DB::clients_table();

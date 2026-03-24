@@ -16,7 +16,7 @@ $display_answers = $tmp ?: $answers;
 
 $lbl_required  = $lang === 'en' ? 'Required fields are marked with *' : 'Los campos con * son obligatorios.';
 $lbl_save      = $lang === 'en' ? 'Save' : 'Guardar';
-$lbl_send      = $lang === 'en' ? 'Submit briefing' : 'Enviar briefing';
+$lbl_send      = $lang === 'en' ? 'Submit pre-briefing' : 'Enviar prebriefing';
 $lbl_select    = $lang === 'en' ? '— Select —' : '— Selecciona —';
 $pill_sent     = $lang === 'en' ? 'SUBMITTED' : 'ENVIADO';
 $pill_draft    = $lang === 'en' ? 'NOT SUBMITTED' : 'NO ENVIADO';
@@ -30,7 +30,6 @@ $sent_badge = $sent
   ? '<span class="ttb-pill">' . $pill_sent . '</span>'
   : '<span class="ttb-pill ttb-pill--draft">' . $pill_draft . '</span>';
 
-// Si ya fue enviado Y no hay errores activos → empieza plegado
 $starts_collapsed = $sent && empty($errors);
 $form_id = 'ttb-form-' . esc_attr($svc);
 ?>
@@ -77,7 +76,6 @@ $form_id = 'ttb-form-' . esc_attr($svc);
   gap: 8px;
 }
 
-/* Spinner overlay */
 .ttb-sending-overlay {
   display: none;
   position: fixed;
@@ -113,7 +111,6 @@ $form_id = 'ttb-form-' . esc_attr($svc);
 }
 </style>
 
-<!-- Overlay de carga (uno global, reutilizable por todos los formularios) -->
 <?php if (!defined('TTB_OVERLAY_RENDERED')): define('TTB_OVERLAY_RENDERED', true); ?>
 <div class="ttb-sending-overlay" id="ttbSendingOverlay" aria-live="assertive" role="status">
   <div class="ttb-spinner"></div>
@@ -240,7 +237,6 @@ $form_id = 'ttb-form-' . esc_attr($svc);
 
 <script>
 (function() {
-  // ── Colapsar / expandir ──────────────────────────────
   document.querySelectorAll('.ttb-collapse-btn').forEach(function(btn) {
     if (btn._ttbInit) return;
     btn._ttbInit = true;
@@ -253,21 +249,17 @@ $form_id = 'ttb-form-' . esc_attr($svc);
       var isCollapsed = wrapper.classList.contains('collapsed');
 
       if (isCollapsed) {
-        // Expandir
         wrapper.style.maxHeight = wrapper.scrollHeight + 'px';
         wrapper.classList.remove('collapsed');
         wrapper.classList.add('expanded');
         btn.setAttribute('aria-expanded', 'true');
         btn.textContent = btn.getAttribute('data-label-expand');
-        // Quitar max-height fijo una vez terminada la transición
         wrapper.addEventListener('transitionend', function onEnd() {
           wrapper.style.maxHeight = '9999px';
           wrapper.removeEventListener('transitionend', onEnd);
         });
       } else {
-        // Plegar: primero fijar altura actual, luego animar a 0
         wrapper.style.maxHeight = wrapper.scrollHeight + 'px';
-        // Forzar reflow
         wrapper.getBoundingClientRect();
         wrapper.style.maxHeight = '0px';
         wrapper.classList.add('collapsed');
@@ -278,7 +270,6 @@ $form_id = 'ttb-form-' . esc_attr($svc);
     });
   });
 
-  // ── Spinner de envío ────────────────────────────────
   var overlay = document.getElementById('ttbSendingOverlay');
   var overlayLabel = document.getElementById('ttbSendingLabel');
 
@@ -286,7 +277,6 @@ $form_id = 'ttb-form-' . esc_attr($svc);
     if (form._ttbSpinInit) return;
     form._ttbSpinInit = true;
 
-    // Capturar qué botón se pulsó antes del submit
     form.querySelectorAll('button[name="submit_mode"]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         form._ttbClickedMode = btn.getAttribute('value');
@@ -302,14 +292,12 @@ $form_id = 'ttb-form-' . esc_attr($svc);
       overlayLabel.textContent = (mode === 'send') ? labelSending : labelSaving;
       overlay.classList.add('active');
 
-      // Inyectar el valor como hidden ANTES de deshabilitar los botones
       var hidden = document.createElement('input');
       hidden.type  = 'hidden';
       hidden.name  = 'submit_mode';
       hidden.value = mode;
       form.appendChild(hidden);
 
-      // Deshabilitar botones para evitar doble envío
       form.querySelectorAll('button[type="submit"]').forEach(function(b) {
         b.disabled = true;
       });

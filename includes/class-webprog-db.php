@@ -5,9 +5,11 @@ if (class_exists('TTB_WebProg_DB')) return;
 /**
  * TTB_WebProg_DB
  * Gestión de tablas para el módulo Revisiones Prog. Web
- * Nomenclatura: ttb_webprog_* (distinta de ttb_webrev_* de Diseños)
  */
 class TTB_WebProg_DB {
+
+  /** Versión interna de esquema — incrementar cuando haya nuevas migraciones */
+  const SCHEMA_VERSION = 2;
 
   public static function projects_table() {
     global $wpdb;
@@ -24,6 +26,12 @@ class TTB_WebProg_DB {
     return $wpdb->prefix . 'ttb_webprog_audit';
   }
 
+  /**
+   * Crea las tablas (idempotente via dbDelta) y aplica migraciones pendientes.
+   * Se llama tanto desde activate() como desde plugins_loaded (con guard de versión)
+   * para garantizar que migraciones como go_live_date se apliquen aunque el plugin
+   * ya estuviera activo cuando se subió la nueva versión del código.
+   */
   public static function create_tables() {
     global $wpdb;
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -33,7 +41,6 @@ class TTB_WebProg_DB {
     $revisions = self::revisions_table();
     $audit     = self::audit_table();
 
-    // Tabla principal de proyectos web en programación
     $sql1 = "CREATE TABLE $projects (
       id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name          VARCHAR(190) NOT NULL,
@@ -41,6 +48,7 @@ class TTB_WebProg_DB {
       web_url       TEXT NOT NULL,
       token         VARCHAR(64) NOT NULL,
       status        VARCHAR(40) NOT NULL DEFAULT 'pending',
+      go_live_date  DATE NULL,
       last_notified DATETIME NULL,
       notif_count   INT UNSIGNED NOT NULL DEFAULT 0,
       created_at    DATETIME NOT NULL,
@@ -50,7 +58,6 @@ class TTB_WebProg_DB {
       KEY status_idx (status)
     ) $charset;";
 
-    // Tabla de rondas de revisión
     $sql2 = "CREATE TABLE $revisions (
       id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       project_id  BIGINT UNSIGNED NOT NULL,
@@ -64,7 +71,6 @@ class TTB_WebProg_DB {
       KEY round_idx (round)
     ) $charset;";
 
-    // Tabla de auditoría
     $sql3 = "CREATE TABLE $audit (
       id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       project_id  BIGINT UNSIGNED NULL,
@@ -84,18 +90,50 @@ class TTB_WebProg_DB {
     dbDelta($sql1);
     dbDelta($sql2);
     dbDelta($sql3);
+
+    // Migración v2: añadir go_live_date si no existe
+    self::migrate_v2();
+
+    // Guardar versión aplicada
+    update_option('ttb_webprog_schema_version', self::SCHEMA_VERSION);
+  }
+
+  /**
+   * Migración v2: columna go_live_date en ttb_webprog_projects.
+   * Seguro de llamar varias veces — solo actúa si la columna no existe.
+   */
+  private static function migrate_v2() {
+    global $wpdb;
+    $table = self::projects_table();
+
+    // Comprobar que la tabla existe antes de intentar añadir columna
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) return;
+
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'go_live_date'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `go_live_date` DATE NULL AFTER `status`");
+    }
+  }
+
+  /**
+   * Ejecuta migraciones pendientes si la versión almacenada es inferior a la actual.
+   * Llamar desde plugins_loaded para cubrir actualizaciones sin desactivar el plugin.
+   */
+  public static function run_migrations() {
+    $current = (int) get_option('ttb_webprog_schema_version', 0);
+    if ($current >= self::SCHEMA_VERSION) return;
+    self::create_tables();
   }
 
   public static function now() {
     return current_time('mysql');
   }
 
-  /** Genera un token único para magic link */
   public static function generate_token() {
     return bin2hex(random_bytes(32));
   }
 
-  /** Recupera un proyecto por token */
   public static function get_project_by_token($token) {
     global $wpdb;
     $table = self::projects_table();
@@ -105,19 +143,20 @@ class TTB_WebProg_DB {
     ));
   }
 
-  /** URL pública del cliente para un proyecto */
   public static function client_url($token) {
     return home_url('/briefing?webprog=' . urlencode($token));
   }
 
   /**
-   * Registra un evento en la tabla de auditoría.
-   *
-   * @param int|null $project_id
-   * @param string   $event      Slug del evento
-   * @param string   $actor      'admin' | 'client' | 'cron' | 'system'
-   * @param array    $detail
+   * Formatea go_live_date en español largo: "martes, 31 de marzo de 2026"
    */
+  public static function format_go_live($date_str) {
+    if (!$date_str) return null;
+    $ts = strtotime($date_str);
+    if (!$ts) return null;
+    return date_i18n('l, j \d\e F \d\e Y', $ts);
+  }
+
   public static function log($project_id, $event, $actor = 'system', $detail = []) {
     global $wpdb;
     $table = self::audit_table();

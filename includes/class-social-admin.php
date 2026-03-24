@@ -74,9 +74,17 @@ class TTB_Social_Admin {
   }
 
   private static function tab_link($key, $label, $active) {
-    $url = esc_url(home_url('/briefing?section=redes-sociales&sstab=' . $key));
-    $cls = ($key === $active) ? 'ttb-tab ttb-tab--active' : 'ttb-tab';
-    echo '<a class="' . $cls . '" href="' . $url . '">' . esc_html($label) . '</a>';
+    $icon_map = [
+      'clients'  => 'clients',
+      'content'  => 'content',
+      'calendar' => 'calendar',
+      'audit'    => 'audit',
+      'settings' => 'settings',
+    ];
+    $icon = ttb_icon($icon_map[$key] ?? '');
+    $url  = esc_url(home_url('/briefing?section=redes-sociales&sstab=' . $key));
+    $cls  = ($key === $active) ? 'ttb-tab ttb-tab--active' : 'ttb-tab';
+    echo '<a class="' . $cls . '" href="' . $url . '">' . $icon . esc_html($label) . '</a>';
   }
 
   private static function set_flash($type, $text) {

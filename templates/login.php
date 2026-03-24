@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 ?>
 <div class="ttb-card ttb-login">
   <div class="ttb-login__head">
-    <h1>Acceso Briefing</h1>
+    <h1>Acceso Portal Cliente</h1>
     <p class="ttb-muted">Introduce tus credenciales para continuar.</p>
   </div>
 

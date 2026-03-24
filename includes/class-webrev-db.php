@@ -33,16 +33,17 @@ class TTB_WebRev_DB {
 
     // Tabla principal de proyectos / clientes de revisión
     $sql1 = "CREATE TABLE $projects (
-      id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      name          VARCHAR(190) NOT NULL,
-      emails        LONGTEXT NOT NULL,
-      figma_url     TEXT NOT NULL,
-      token         VARCHAR(64) NOT NULL,
-      status        VARCHAR(40) NOT NULL DEFAULT 'pending',
-      last_notified DATETIME NULL,
-      notif_count   INT UNSIGNED NOT NULL DEFAULT 0,
-      created_at    DATETIME NOT NULL,
-      updated_at    DATETIME NOT NULL,
+      id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name            VARCHAR(190) NOT NULL,
+      emails          LONGTEXT NOT NULL,
+      figma_url       TEXT NOT NULL,
+      figma_url_mobile TEXT NULL,
+      token           VARCHAR(64) NOT NULL,
+      status          VARCHAR(40) NOT NULL DEFAULT 'pending',
+      last_notified   DATETIME NULL,
+      notif_count     INT UNSIGNED NOT NULL DEFAULT 0,
+      created_at      DATETIME NOT NULL,
+      updated_at      DATETIME NOT NULL,
       PRIMARY KEY (id),
       UNIQUE KEY token_unique (token),
       KEY status_idx (status)
@@ -82,6 +83,12 @@ class TTB_WebRev_DB {
     dbDelta($sql1);
     dbDelta($sql2);
     dbDelta($sql3);
+
+    // Migración: añadir columna si la tabla ya existe sin ella
+    $col = $wpdb->get_results("SHOW COLUMNS FROM $projects LIKE 'figma_url_mobile'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE $projects ADD COLUMN figma_url_mobile TEXT NULL AFTER figma_url");
+    }
   }
 
   public static function now() {
@@ -109,17 +116,11 @@ class TTB_WebRev_DB {
 
   /**
    * Registra un evento en la tabla de auditoría.
-   *
-   * @param int|null $project_id  ID del proyecto (null para eventos globales)
-   * @param string   $event       Slug del evento (ej: 'project_created')
-   * @param string   $actor       'admin' | 'client' | 'cron' | 'system'
-   * @param array    $detail      Datos adicionales (se guarda como JSON)
    */
   public static function log($project_id, $event, $actor = 'system', $detail = []) {
     global $wpdb;
     $table = self::audit_table();
 
-    // Sanear detail — evitar loguear contraseñas
     if (is_array($detail)) {
       foreach (['password', 'pass', 'p', 'token', 'pass_hash'] as $k) {
         if (isset($detail[$k])) $detail[$k] = '***';

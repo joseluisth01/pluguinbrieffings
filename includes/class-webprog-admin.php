@@ -50,7 +50,7 @@ class TTB_WebProg_Admin {
     echo '<div class="ttb-tabs">';
     self::tab_link('projects',  'Proyectos',     $tab);
     self::tab_link('revisions', 'Revisiones',    $tab);
-    self::tab_link('audit',     '🔍 Auditoría',  $tab);
+    self::tab_link('audit',     'Auditoría',  $tab);
     self::tab_link('settings',  'Configuración', $tab);
     echo '</div>';
 
@@ -63,9 +63,16 @@ class TTB_WebProg_Admin {
   }
 
   private static function tab_link($key, $label, $active) {
-    $url = esc_url(home_url('/briefing?section=revisiones-web&wptab=' . $key));
-    $cls = ($key === $active) ? 'ttb-tab ttb-tab--active' : 'ttb-tab';
-    echo '<a class="' . $cls . '" href="' . $url . '">' . esc_html($label) . '</a>';
+    $icon_map = [
+      'projects'  => 'projects',
+      'revisions' => 'revisions',
+      'audit'     => 'audit',
+      'settings'  => 'settings',
+    ];
+    $icon = ttb_icon($icon_map[$key] ?? '');
+    $url  = esc_url(home_url('/briefing?section=revisiones-web&wptab=' . $key));
+    $cls  = ($key === $active) ? 'ttb-tab ttb-tab--active' : 'ttb-tab';
+    echo '<a class="' . $cls . '" href="' . $url . '">' . $icon . esc_html($label) . '</a>';
   }
 
   private static function set_flash($type, $text) {
@@ -322,7 +329,7 @@ class TTB_WebProg_Admin {
       ];
 
       echo '<div class="ttb-tablewrap"><table class="ttb-table"><thead><tr>
-        <th>Cliente</th><th>Emails</th><th>Web</th><th>Estado</th><th>Avisos</th><th>Últ. aviso</th><th>Acciones</th>
+        <th>Cliente</th><th>Emails</th><th>Web</th><th>Estado</th><th>Fecha subida</th><th>Avisos</th><th>Últ. aviso</th><th>Acciones</th>
       </tr></thead><tbody>';
 
       foreach ($projects as $p) {
@@ -341,6 +348,20 @@ class TTB_WebProg_Admin {
         echo '<td style="font-size:13px">' . $emails_str . '</td>';
         echo '<td style="font-size:12px"><a href="' . esc_url($p->web_url) . '" target="_blank" style="color:var(--ttb-pink)">' . esc_html($web_short) . '</a></td>';
         echo '<td><span class="ttb-status ' . $sc . '">' . esc_html($sl) . '</span></td>';
+        // Fecha preferida de subida
+        $go_live_fmt = TTB_WebProg_DB::format_go_live($p->go_live_date ?? null);
+        if ($go_live_fmt) {
+          $days_left = (int)ceil((strtotime($p->go_live_date) - time()) / 86400);
+          $badge_style = $days_left <= 7
+            ? 'background:#fff7ed;color:#9a3412;border:1px solid #fed7aa'
+            : 'background:#f9fafb;color:#374151;border:1px solid #e5e7eb';
+          echo '<td><span style="display:inline-block;font-size:12px;font-weight:800;padding:4px 10px;border-radius:999px;' . $badge_style . '">'
+            . esc_html(date_i18n('d/m/Y', strtotime($p->go_live_date)))
+            . ($days_left <= 7 ? ' · ' . $days_left . 'd' : '')
+            . '</span></td>';
+        } else {
+          echo '<td><span style="color:var(--ttb-muted);font-size:13px">—</span></td>';
+        }
         echo '<td style="text-align:center">' . (int)$p->notif_count . '</td>';
         echo '<td>' . $last_n . '</td>';
         echo '<td><div class="ttb-row-actions">';
@@ -409,7 +430,24 @@ class TTB_WebProg_Admin {
 
     echo '<div class="ttb-card">';
     echo '<h3>' . esc_html($project->name) . '</h3>';
-    echo '<p class="ttb-muted"><a href="' . esc_url($project->web_url) . '" target="_blank">🌐 Ver web</a> &nbsp;·&nbsp; <a href="' . esc_url(TTB_WebProg_DB::client_url($project->token)) . '" target="_blank">👁️ Ver como cliente</a></p>';
+    echo '<p class="ttb-muted">';
+    echo '<a href="' . esc_url($project->web_url) . '" target="_blank">🌐 Ver web</a> &nbsp;·&nbsp; <a href="' . esc_url(TTB_WebProg_DB::client_url($project->token)) . '" target="_blank">👁️ Ver como cliente</a>';
+    echo '</p>';
+    // Mostrar fecha de subida elegida si existe
+    if (!empty($project->go_live_date)) {
+      $go_live_fmt = TTB_WebProg_DB::format_go_live($project->go_live_date);
+      $days_left   = (int)ceil((strtotime($project->go_live_date) - time()) / 86400);
+      $urgency     = $days_left <= 7 ? '#fff7ed' : '#fffbeb';
+      $urgency_bc  = $days_left <= 7 ? '#fed7aa' : '#fcd34d';
+      $urgency_col = $days_left <= 7 ? '#9a3412' : '#92400e';
+      echo '<div style="display:inline-block;margin-top:12px;background:' . $urgency . ';border:1.5px solid ' . $urgency_bc . ';border-radius:12px;padding:12px 18px">';
+      echo '<p style="margin:0 0 2px;font-size:11px;font-weight:900;color:' . $urgency_col . ';text-transform:uppercase;letter-spacing:.07em">📅 Fecha preferida de subida</p>';
+      echo '<p style="margin:0;font-size:16px;font-weight:900;color:' . $urgency_col . '">' . esc_html($go_live_fmt);
+      if ($days_left > 0) echo ' <span style="font-size:13px;font-weight:700">(' . $days_left . ' días)</span>';
+      elseif ($days_left === 0) echo ' <span style="font-size:13px;font-weight:700">(hoy)</span>';
+      else echo ' <span style="font-size:13px;font-weight:700;color:#e11d48">(pasada)</span>';
+      echo '</p></div>';
+    }
 
     if (!$revisions) {
       echo '<p class="ttb-muted">Sin revisiones todavía.</p>';
@@ -532,7 +570,7 @@ class TTB_WebProg_Admin {
     echo '<div class="ttb-card">';
     echo '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">';
     echo '<div>';
-    echo '<h3 style="margin:0 0 4px">🔍 Auditoría — Prog. Web</h3>';
+    echo '<h3 style="margin:0 0 4px">Auditoría — Prog. Web</h3>';
     echo '<p class="ttb-muted" style="margin:0">Registro completo de actividad del módulo Revisiones Prog. Web.</p>';
     echo '</div></div>';
 

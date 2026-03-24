@@ -22,11 +22,11 @@ class TTB_Mailer {
     $logo   = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
     $pink   = '#D72173';
 
-    $map = ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web'];
+    $map   = ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web'];
     $icons = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐'];
     $service_pills = $this->build_pills($services, $map, $icons);
 
-    $subject = '👋 Ya puedes rellenar tu Briefing — TicTac Comunicación';
+    $subject = '👋 Ya puedes rellenar tu Prebriefing — TicTac Comunicación';
     $message = $this->tpl_access_es($name, $username, $password, $portal, $logo, $pink, $service_pills);
 
     wp_mail($email, $subject, $message, ['Content-Type: text/html; charset=UTF-8']);
@@ -44,7 +44,7 @@ class TTB_Mailer {
     $icons = ['design' => '🎨',     'social' => '📣',           'seo' => '🚀',  'web' => '🌐'];
     $service_pills = $this->build_pills($services, $map, $icons);
 
-    $subject = '👋 Your Briefing is ready — TicTac Comunicación';
+    $subject = '👋 Your Pre-briefing is ready — TicTac Comunicación';
     $message = $this->tpl_access_en($name, $username, $password, $portal, $logo, $pink, $service_pills);
 
     wp_mail($email, $subject, $message, ['Content-Type: text/html; charset=UTF-8']);
@@ -86,7 +86,7 @@ class TTB_Mailer {
     <tr>
       <td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:40px 32px 32px">
         <img src="' . $logo . '" alt="TicTac Comunicación" width="160" style="display:block;margin:0 auto 20px">
-        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">¡Tu briefing te espera! ⏱️</h1>
+        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">¡Tu prebriefing te espera! ⏱️</h1>
         <p style="margin:0 0 18px;color:rgba(255,255,255,.85);font-size:15px">Cuéntanos todo sobre tu proyecto y ponemos las pilas</p>
         <div style="margin-top:4px">' . $pills . '</div>
       </td>
@@ -97,7 +97,7 @@ class TTB_Mailer {
           Hola, <span style="color:' . $pink . '">' . esc_html($name) . '</span> 👋
         </p>
         <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6">
-          Hemos creado tu acceso personal al portal de briefings de TicTac.
+          Hemos creado tu acceso personal al portal de prebriefings de TicTac.
           Rellénalo con calma — puedes guardarlo y retomarlo cuando quieras.
           Cuando lo envíes, nuestro equipo lo revisará y nos pondremos en contacto contigo para arrancar.
         </p>
@@ -132,7 +132,7 @@ class TTB_Mailer {
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
-                Acceder al Portal de Briefing →
+                Acceder al Portal de Prebriefing →
               </a>
             </td>
           </tr>
@@ -185,7 +185,7 @@ class TTB_Mailer {
     <tr>
       <td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:40px 32px 32px">
         <img src="' . $logo . '" alt="TicTac Comunicación" width="160" style="display:block;margin:0 auto 20px">
-        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">Your briefing is waiting! ⏱️</h1>
+        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">Your pre-briefing is waiting! ⏱️</h1>
         <p style="margin:0 0 18px;color:rgba(255,255,255,.85);font-size:15px">Tell us everything about your project and we\'ll get to work</p>
         <div style="margin-top:4px">' . $pills . '</div>
       </td>
@@ -196,7 +196,7 @@ class TTB_Mailer {
           Hello, <span style="color:' . $pink . '">' . esc_html($name) . '</span> 👋
         </p>
         <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6">
-          We\'ve created your personal access to the TicTac briefing portal.
+          We\'ve created your personal access to the TicTac pre-briefing portal.
           Take your time filling it in — you can save it and come back whenever you like.
           Once you submit it, our team will review it and get in touch to kick things off.
         </p>
@@ -231,7 +231,7 @@ class TTB_Mailer {
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
-                Access the Briefing Portal →
+                Access the Pre-briefing Portal →
               </a>
             </td>
           </tr>
@@ -240,7 +240,7 @@ class TTB_Mailer {
                style="background:#f9fafb;border-radius:12px;margin-bottom:24px">
           <tr>
             <td style="padding:18px 20px">
-              <p style="margin:0 0 10px;font-size:13px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:.06em">💡 Tips for a great briefing</p>
+              <p style="margin:0 0 10px;font-size:13px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:.06em">💡 Tips for a great pre-briefing</p>
               <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;There are no right or wrong answers — just be yourself.</p>
               <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;The more detail you give us, the better the result.</p>
               <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;You can save and continue at any time — no rush.</p>
@@ -268,8 +268,8 @@ class TTB_Mailer {
 </html>';
   }
 
-/* ─────────────────────────────────────────────
-     AVISO INTERNO AL DEPARTAMENTO (siempre en español)
+  /* ─────────────────────────────────────────────
+     AVISO INTERNO AL DEPARTAMENTO
   ───────────────────────────────────────────── */
   public function send_department_alert($client_name, $client_email, $service) {
     $logo  = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
@@ -294,7 +294,7 @@ class TTB_Mailer {
     $dept       = $dept_names[$service] ?? strtoupper($service);
     $portal_url = home_url('/briefing');
     $drive_url  = 'https://drive.google.com/drive/folders/17HJ0F4PePs9DxnJM8J6zAjCuU90MS6LQ?usp=drive_link';
-    $subject    = '✅ Briefing de ' . $dept . ' recibido — ' . $client_name;
+    $subject    = '✅ Prebriefing de ' . $dept . ' recibido — ' . $client_name;
 
     $message = '
 <!DOCTYPE html>
@@ -315,9 +315,9 @@ class TTB_Mailer {
                style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:14px;margin-bottom:24px">
           <tr>
             <td style="padding:20px 24px">
-              <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#065f46">✅ ¡Briefing recibido!</p>
+              <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#065f46">✅ ¡Prebriefing recibido!</p>
               <p style="margin:0;font-size:14px;color:#047857">
-                El briefing de <strong>' . esc_html($dept) . '</strong> ya está listo para que lo revises.
+                El prebriefing de <strong>' . esc_html($dept) . '</strong> ya está listo para que lo revises.
               </p>
             </td>
           </tr>
@@ -360,7 +360,7 @@ class TTB_Mailer {
           </tr>
         </table>
         <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.5">
-          Aviso automático del portal de briefings · TicTac Comunicación
+          Aviso automático del portal de prebriefings · TicTac Comunicación
         </p>
       </td>
     </tr>

@@ -33,14 +33,21 @@ class TTB_WebProg_Mailer {
 
   /* ─────────────────────────────────────────────
      EMAIL INTERNO: cliente aceptó la web
+     Ahora recibe go_live_date para incluirlo
   ───────────────────────────────────────────── */
   public function send_accepted_alert($project) {
     $to_hola = get_option('ttb_webprog_notify_hola',       'hola@tictac-comunicacion.es');
     $to_prog = get_option('ttb_webprog_notify_produccion',  'produccion@tictac-comunicacion.es');
     $to      = array_filter(array_map('trim', [$to_hola, $to_prog]));
 
+    $go_live_formatted = TTB_WebProg_DB::format_go_live($project->go_live_date ?? null);
+
     $subject = '✅ Web aceptada — ' . $project->name;
-    $message = $this->tpl_internal_accepted($project);
+    if ($go_live_formatted) {
+      $subject .= ' — Subida: ' . date_i18n('d/m/Y', strtotime($project->go_live_date));
+    }
+
+    $message = $this->tpl_internal_accepted($project, $go_live_formatted);
     $headers = ['Content-Type: text/html; charset=UTF-8'];
 
     foreach ($to as $email) {
@@ -149,10 +156,24 @@ class TTB_WebProg_Mailer {
 </body></html>';
   }
 
-  private function tpl_internal_accepted($project) {
+  private function tpl_internal_accepted($project, $go_live_formatted) {
     $pink   = $this->pink;
     $logo   = $this->logo;
     $portal = home_url('/briefing?section=revisiones-web');
+
+    // Bloque fecha preferida de subida
+    $go_live_block = '';
+    if ($go_live_formatted) {
+      $go_live_block = '
+        <div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:14px;padding:18px 22px;margin-bottom:24px">
+          <p style="margin:0 0 4px;font-size:12px;font-weight:900;color:#92400e;text-transform:uppercase;letter-spacing:.07em">📅 Fecha preferida de subida</p>
+          <p style="margin:0;font-size:20px;font-weight:900;color:#92400e">' . esc_html($go_live_formatted) . '</p>
+          <p style="margin:6px 0 0;font-size:13px;color:#b45309;line-height:1.5">
+            El cliente ha sido informado de que la web estará parcialmente caída ese día. Recuerda programar la subida para esa fecha.
+          </p>
+        </div>';
+    }
+
     return '<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8"></head>
@@ -171,11 +192,12 @@ class TTB_WebProg_Mailer {
           <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#065f46">✅ ¡Web aceptada!</p>
           <p style="margin:0;font-size:14px;color:#047857">El cliente ha dado el visto bueno a la programación web.</p>
         </div>
+        ' . $go_live_block . '
         <div style="background:#f9fafb;border-radius:12px;padding:18px 22px;margin-bottom:24px">
           <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase">Datos del proyecto</p>
           <p style="margin:0 0 6px;font-size:15px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($project->name) . '</p>
           <p style="margin:0 0 6px;font-size:15px;color:#1a1a2e"><strong>Web:</strong> <a href="' . esc_url($project->web_url) . '" style="color:' . $pink . '">' . esc_html($project->web_url) . '</a></p>
-          <p style="margin:0;font-size:15px;color:#1a1a2e"><strong>Fecha:</strong> ' . date_i18n('d/m/Y H:i') . '</p>
+          <p style="margin:0;font-size:15px;color:#1a1a2e"><strong>Fecha de aceptación:</strong> ' . date_i18n('d/m/Y H:i') . '</p>
         </div>
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>

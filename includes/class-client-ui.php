@@ -16,13 +16,12 @@ class TTB_Client_UI {
     $services = json_decode((string)$c->services, true);
     if (!is_array($services)) $services = [];
 
-    // Idioma del cliente
     $lang = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
 
     $greeting  = $lang === 'en' ? 'Hello' : 'Hola';
     $sub_text  = $lang === 'en'
-      ? 'Complete the assigned briefings. You can save and continue later, or submit when ready.'
-      : 'Completa los briefings asignados. Puedes guardar y seguir más tarde o enviar cuando lo tengas.';
+      ? 'Complete the assigned pre-briefings. You can save and continue later, or submit when ready.'
+      : 'Completa los prebriefings asignados. Puedes guardar y seguir más tarde o enviar cuando lo tengas.';
     $no_svc    = $lang === 'en'
       ? 'No services assigned yet.'
       : 'No tienes servicios asignados todavía.';
@@ -38,18 +37,17 @@ class TTB_Client_UI {
       return;
     }
 
-    // Títulos por servicio según idioma
     $titles_es = [
-      'design' => 'Briefing de Diseño',
-      'social' => 'Briefing de Redes',
-      'seo'    => 'Briefing de SEO',
-      'web'    => 'Briefing de Web',
+      'design' => 'Prebriefing de Diseño',
+      'social' => 'Prebriefing de Redes',
+      'seo'    => 'Prebriefing de SEO',
+      'web'    => 'Prebriefing de Web',
     ];
     $titles_en = [
-      'design' => 'Design Briefing',
-      'social' => 'Social Media Briefing',
-      'seo'    => 'SEO Briefing',
-      'web'    => 'Web Briefing',
+      'design' => 'Design Pre-briefing',
+      'social' => 'Social Media Pre-briefing',
+      'seo'    => 'SEO Pre-briefing',
+      'web'    => 'Web Pre-briefing',
     ];
     $titles = $lang === 'en' ? $titles_en : $titles_es;
 

@@ -19,7 +19,7 @@ nocache_headers();
 <meta charset="<?php bloginfo('charset'); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title>Briefing — TicTac Comunicación</title>
+<title>Prebriefing — TicTac Comunicación</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -49,7 +49,6 @@ nocache_headers();
   justify-content:center;
 }
 
-/* LOGO CENTRADO */
 .ttb-logo{
   position:absolute;
   left:50%;
@@ -61,7 +60,6 @@ nocache_headers();
   display:block;
 }
 
-/* BOTON DERECHA */
 .ttb-logout{
   position:absolute;
   right:20px;
@@ -145,16 +143,16 @@ if ($auth->is_client()) {
   if ($modal_svc) {
     $modal_titles = [
       'es' => [
-        'design' => 'Briefing de Diseño enviado',
-        'social' => 'Briefing de Redes enviado',
-        'seo'    => 'Briefing SEO enviado',
-        'web'    => 'Briefing Web enviado',
+        'design' => 'Prebriefing de Diseño enviado',
+        'social' => 'Prebriefing de Redes enviado',
+        'seo'    => 'Prebriefing SEO enviado',
+        'web'    => 'Prebriefing Web enviado',
       ],
       'en' => [
-        'design' => 'Design Briefing submitted',
-        'social' => 'Social Media Briefing submitted',
-        'seo'    => 'SEO Briefing submitted',
-        'web'    => 'Web Briefing submitted',
+        'design' => 'Design Pre-briefing submitted',
+        'social' => 'Social Media Pre-briefing submitted',
+        'seo'    => 'SEO Pre-briefing submitted',
+        'web'    => 'Web Pre-briefing submitted',
       ],
     ];
     $modal_subs = [
@@ -178,7 +176,7 @@ if ($auth->is_client()) {
     ];
     $modal_btn = ['es' => 'Perfecto, ¡gracias! 🎉', 'en' => 'Great, thanks! 🎉'];
 
-    $t     = $modal_titles[$lang][$modal_svc]  ?? 'Briefing enviado';
+    $t     = $modal_titles[$lang][$modal_svc]  ?? 'Prebriefing enviado';
     $sub   = $modal_subs[$lang][$modal_svc]    ?? strtoupper($modal_svc);
     $emoji = $modal_emojis[$modal_svc]         ?? '✅';
     $msg   = $modal_msgs[$lang]                ?? $modal_msgs['es'];
@@ -202,7 +200,6 @@ if ($auth->is_client()) {
       var closeBtn = document.getElementById('ttbSuccessClose');
       if (!overlay) return;
 
-      // Ocultar spinner si quedó activo
       var spinner = document.getElementById('ttbSendingOverlay');
       if (spinner) spinner.classList.remove('active');
 
