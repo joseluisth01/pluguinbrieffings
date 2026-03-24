@@ -1,14 +1,14 @@
 <?php
 /**
- * Plugin Name: TicTacccc Briefing Portal (Standalone)
- * Description: Portal /briefing con login independiente + admin frontend + clientes + formularios por servicio + Google Drive + Revisiones Diseños + Revisiones Prog. Web.
- * Version: 1.4.0
+ * Plugin Name: TicTac Briefing Portal (Standalone)
+ * Description: Portal /briefing con login independiente + admin frontend + clientes + formularios por servicio + Google Drive + Revisiones Diseños + Revisiones Prog. Web + Redes Sociales.
+ * Version: 1.5.0
  * Author: TicTac Comunicación
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TTB_VERSION', '1.4.0');
+define('TTB_VERSION', '1.5.0');
 define('TTB_PATH', plugin_dir_path(__FILE__));
 define('TTB_URL',  plugin_dir_url(__FILE__));
 
@@ -39,6 +39,13 @@ require_once TTB_PATH . 'includes/class-webprog-cron.php';
 require_once TTB_PATH . 'includes/class-webprog-admin.php';
 require_once TTB_PATH . 'includes/class-webprog-client.php';
 
+// ── Módulo: Redes Sociales ────────────────────────────────────
+require_once TTB_PATH . 'includes/class-social-db.php';
+require_once TTB_PATH . 'includes/class-social-mailer.php';
+require_once TTB_PATH . 'includes/class-social-cron.php';
+require_once TTB_PATH . 'includes/class-social-admin.php';
+require_once TTB_PATH . 'includes/class-social-client.php';
+
 register_activation_hook(__FILE__,   ['TTB_Activator',   'activate']);
 register_deactivation_hook(__FILE__, ['TTB_Deactivator', 'deactivate']);
 
@@ -54,6 +61,9 @@ add_action('plugins_loaded', function () {
 
   // Cron de recordatorios de revisiones prog. web
   TTB_WebProg_Cron::register();
+
+  // Cron de recordatorios de redes sociales
+  TTB_Social_Cron::register();
 
   // ✅ Si cierras sesión de WordPress (wp-admin), también borra sesión del portal
   add_action('wp_logout', function () use ($auth) {

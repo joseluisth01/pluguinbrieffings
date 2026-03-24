@@ -6,5 +6,6 @@ class TTB_Deactivator {
     flush_rewrite_rules();
     TTB_WebRev_Cron::deregister();
     TTB_WebProg_Cron::deregister();
+    TTB_Social_Cron::deregister();
   }
 }

@@ -28,7 +28,7 @@ class TTB_Admin_UI {
 
     echo '<div class="ttb-container">';
     echo '<div class="ttb-card ttb-card--header">';
-    echo '<h2>Administrador Briefing</h2>';
+    echo '<h2 style="text-align:center">PORTAL CLIENTE</h2>';
     echo '</div>';
 
     // Flash inline (sin redirect)
@@ -69,7 +69,7 @@ class TTB_Admin_UI {
         break;
 
       case 'redes-sociales':
-        echo '<div class="ttb-card"><p class="ttb-muted">Sección <strong>Redes Sociales</strong> — próximamente.</p></div>';
+        TTB_Social_Admin::render();
         break;
 
       case 'revisiones-web':

@@ -17,6 +17,10 @@ class TTB_Activator {
     TTB_WebProg_DB::create_tables();
     // Programar cron Revisiones Prog. Web
     TTB_WebProg_Cron::register();
+    // Tablas del módulo Redes Sociales
+    TTB_Social_DB::create_tables();
+    // Programar cron Redes Sociales
+    TTB_Social_Cron::register();
   }
 
   private static function create_tables() {

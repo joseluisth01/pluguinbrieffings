@@ -80,6 +80,13 @@ class TTB_Router {
       exit;
     }
 
+    // ── ¿Es un magic link de Redes Sociales? ────────────────
+    $social_token = sanitize_text_field($_GET['social'] ?? '');
+    if ($social_token) {
+      include TTB_PATH . 'templates/portal-shell-social.php';
+      exit;
+    }
+
     include TTB_PATH . 'templates/portal-shell.php';
     exit;
   }
