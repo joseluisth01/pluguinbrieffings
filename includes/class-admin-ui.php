@@ -3,7 +3,17 @@ if (!defined('ABSPATH')) exit;
 
 class TTB_Admin_UI {
 
-  private static $inline_flash = null;
+  /* ── Flash via transient (PRG pattern) ── */
+  private static function flash_and_redirect($type, $text, $url = null) {
+    set_transient('ttb_admin_flash', ['type' => $type, 'text' => $text], 60);
+    if (!$url) {
+      $section = sanitize_text_field($_GET['section'] ?? 'briefings');
+      $tab     = sanitize_text_field($_GET['tab']     ?? 'clients');
+      $url     = home_url('/briefing?section=' . $section . '&tab=' . $tab);
+    }
+    echo '<script>window.location.replace(' . json_encode($url) . ');</script>';
+    exit;
+  }
 
   public static function render() {
     $auth = new TTB_Auth();
@@ -16,11 +26,11 @@ class TTB_Admin_UI {
     $tab     = sanitize_text_field($_GET['tab']     ?? 'clients');
 
     if ($section === 'briefings') {
-      $tab = self::handle_forms_save($tab);
-      $tab = self::handle_client_create($tab);
-      $tab = self::handle_client_edit($tab);
-      $tab = self::handle_client_delete($tab);
-      $tab = self::handle_resend_email($tab);
+      self::handle_forms_save($tab);
+      self::handle_client_create($tab);
+      self::handle_client_edit($tab);
+      self::handle_client_delete($tab);
+      self::handle_resend_email($tab);
     }
 
     echo '<div class="ttb-container">';
@@ -28,10 +38,12 @@ class TTB_Admin_UI {
     echo '<h2 style="text-align:center">PORTAL CLIENTE</h2>';
     echo '</div>';
 
-    if (self::$inline_flash) {
-      $f   = self::$inline_flash;
-      $cls = ($f['type'] === 'success') ? 'ttb-alert--success' : 'ttb-alert--error';
-      echo '<div class="ttb-alert ' . $cls . '">' . esc_html($f['text']) . '</div>';
+    // Leer flash del transient
+    $flash = get_transient('ttb_admin_flash');
+    if ($flash) {
+      delete_transient('ttb_admin_flash');
+      $cls = ($flash['type'] === 'success') ? 'ttb-alert--success' : 'ttb-alert--error';
+      echo '<div class="ttb-alert ' . $cls . '">' . esc_html($flash['text']) . '</div>';
     }
 
     // ── Pestañas principales ──
@@ -110,14 +122,10 @@ class TTB_Admin_UI {
     echo '<a class="' . $cls . '" href="' . $url . '">' . $icon . esc_html($label) . '</a>';
   }
 
-  private static function flash($type, $text) {
-    self::$inline_flash = ['type' => $type, 'text' => $text];
-  }
-
   /* ── Guardar formularios JSON ── */
   private static function handle_forms_save($tab) {
-    if (!isset($_POST['ttb_admin_save_forms'])) return $tab;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_forms')) return $tab;
+    if (!isset($_POST['ttb_admin_save_forms'])) return;
+    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_forms')) return;
 
     $lang = sanitize_text_field($_POST['ttb_form_lang'] ?? 'es');
     $sfx  = ($lang === 'en') ? '_en' : '';
@@ -127,14 +135,15 @@ class TTB_Admin_UI {
     update_option('ttb_form_seo'    . $sfx, wp_unslash($_POST['ttb_form_seo']    ?? ''));
     update_option('ttb_form_web'    . $sfx, wp_unslash($_POST['ttb_form_web']    ?? ''));
 
-    self::flash('success', 'Formularios guardados.');
-    return ($lang === 'en') ? 'forms_en' : 'forms';
+    $dest_tab = ($lang === 'en') ? 'forms_en' : 'forms';
+    self::flash_and_redirect('success', 'Formularios guardados.',
+      home_url('/briefing?section=briefings&tab=' . $dest_tab));
   }
 
   /* ── Crear cliente ── */
   private static function handle_client_create($tab) {
-    if (!isset($_POST['ttb_admin_create_client'])) return $tab;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_clients')) return $tab;
+    if (!isset($_POST['ttb_admin_create_client'])) return;
+    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_clients')) return;
 
     $name     = sanitize_text_field($_POST['client_name']  ?? '');
     $email    = sanitize_email($_POST['client_email']       ?? '');
@@ -142,8 +151,8 @@ class TTB_Admin_UI {
     $services = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
 
     if (!$name || !$email) {
-      self::flash('error', 'Nombre y email son obligatorios.');
-      return 'clients';
+      self::flash_and_redirect('error', 'Nombre y email son obligatorios.',
+        home_url('/briefing?section=briefings&tab=clients'));
     }
 
     $username = sanitize_user($name, true);
@@ -170,17 +179,17 @@ class TTB_Admin_UI {
 
     (new TTB_Mailer())->send_client_access($name, $email, $username, $password, $services, $lang);
 
-    self::flash('success', 'Cliente creado y email enviado.');
-    return 'clients';
+    self::flash_and_redirect('success', 'Cliente creado y email enviado.',
+      home_url('/briefing?section=briefings&tab=clients'));
   }
 
   /* ── Editar cliente ── */
   private static function handle_client_edit($tab) {
-    if (!isset($_POST['ttb_admin_edit_client'])) return $tab;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_edit_client')) return $tab;
+    if (!isset($_POST['ttb_admin_edit_client'])) return;
+    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_edit_client')) return;
 
     $client_id = (int)($_POST['client_id'] ?? 0);
-    if (!$client_id) return $tab;
+    if (!$client_id) return;
 
     $name     = sanitize_text_field($_POST['client_name']  ?? '');
     $email    = sanitize_email($_POST['client_email']       ?? '');
@@ -188,8 +197,8 @@ class TTB_Admin_UI {
     $services = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
 
     if (!$name || !$email) {
-      self::flash('error', 'Nombre y email son obligatorios.');
-      return 'clients';
+      self::flash_and_redirect('error', 'Nombre y email son obligatorios.',
+        home_url('/briefing?section=briefings&tab=clients'));
     }
 
     global $wpdb;
@@ -203,38 +212,38 @@ class TTB_Admin_UI {
       'updated_at' => TTB_DB::now(),
     ], ['id' => $client_id]);
 
-    self::flash('success', 'Cliente actualizado correctamente.');
-    return 'clients';
+    self::flash_and_redirect('success', 'Cliente actualizado correctamente.',
+      home_url('/briefing?section=briefings&tab=clients'));
   }
 
   /* ── Eliminar cliente ── */
   private static function handle_client_delete($tab) {
-    if (!isset($_POST['ttb_admin_delete_client'])) return $tab;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_delete_client')) return $tab;
+    if (!isset($_POST['ttb_admin_delete_client'])) return;
+    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_delete_client')) return;
 
     $client_id = (int)($_POST['client_id'] ?? 0);
-    if (!$client_id) return $tab;
+    if (!$client_id) return;
 
     global $wpdb;
     $wpdb->delete(TTB_DB::clients_table(), ['id' => $client_id]);
     $wpdb->delete(TTB_DB::answers_table(), ['client_id' => $client_id]);
 
-    self::flash('success', 'Cliente eliminado.');
-    return 'clients';
+    self::flash_and_redirect('success', 'Cliente eliminado.',
+      home_url('/briefing?section=briefings&tab=clients'));
   }
 
   /* ── Reenviar email ── */
   private static function handle_resend_email($tab) {
-    if (!isset($_POST['ttb_admin_resend'])) return $tab;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_resend')) return $tab;
+    if (!isset($_POST['ttb_admin_resend'])) return;
+    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_resend')) return;
 
     $client_id = (int)($_POST['client_id'] ?? 0);
-    if (!$client_id) return $tab;
+    if (!$client_id) return;
 
     global $wpdb;
     $table = TTB_DB::clients_table();
     $c = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $client_id));
-    if (!$c) return $tab;
+    if (!$c) return;
 
     $services = json_decode((string)$c->services, true);
     if (!is_array($services)) $services = [];
@@ -243,8 +252,8 @@ class TTB_Admin_UI {
 
     (new TTB_Mailer())->send_client_access((string)$c->name, (string)$c->email, (string)$c->username, $password, $services, $lang);
 
-    self::flash('success', 'Email reenviado.');
-    return 'clients';
+    self::flash_and_redirect('success', 'Email reenviado.',
+      home_url('/briefing?section=briefings&tab=clients'));
   }
 
   /* ════════════════════════════════

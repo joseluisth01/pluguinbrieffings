@@ -2,35 +2,31 @@
 if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_WebProg_Admin')) return;
 
-/**
- * TTB_WebProg_Admin
- * Panel de administración para el módulo Revisiones Prog. Web
- */
 class TTB_WebProg_Admin {
 
-  private static $flash = null;
-
-  /* ── Catálogo de eventos registrables ── */
   public static function event_catalog() {
     return [
-      // Proyectos
       'project_created'       => ['🌐 Proyecto creado',             '#ecfdf5', '#6ee7b7', '#065f46'],
       'project_updated'       => ['✏️ Proyecto editado',             '#eff6ff', '#bfdbfe', '#1d4ed8'],
       'project_deleted'       => ['🗑️ Proyecto eliminado',           '#fff1f2', '#fecdd3', '#be123c'],
-      // Emails
       'email_invitation_sent' => ['📧 Invitación enviada',           '#fdf4ff', '#e9d5ff', '#7e22ce'],
       'email_accepted_sent'   => ['📧 Email aceptación enviado',     '#ecfdf5', '#a7f3d0', '#065f46'],
       'email_changes_sent'    => ['📧 Email cambios enviado',        '#fffbeb', '#fde68a', '#92400e'],
-      // Acciones cliente
       'client_view'           => ['👁️ Cliente vio la web',           '#f0f9ff', '#bae6fd', '#0369a1'],
       'web_accepted'          => ['✅ Web aceptada',                  '#ecfdf5', '#6ee7b7', '#065f46'],
       'changes_requested'     => ['✏️ Cambios solicitados',          '#fffbeb', '#fcd34d', '#92400e'],
-      // Sistema / errores
       'nonce_failed'          => ['⚠️ Nonce inválido',               '#fff1f2', '#fecdd3', '#be123c'],
       'invalid_token_access'  => ['🚫 Token inválido',               '#fff1f2', '#fecdd3', '#be123c'],
-      // Cron
       'cron_reminder_sent'    => ['⏰ Recordatorio cron enviado',    '#f5f3ff', '#ddd6fe', '#5b21b6'],
     ];
+  }
+
+  // ── PRG helper ──────────────────────────────────────────────────────────────
+  private static function flash_and_redirect($type, $text, $url = null) {
+    set_transient('ttb_webprog_admin_flash', ['type' => $type, 'text' => $text], 60);
+    if (!$url) $url = home_url('/briefing?section=revisiones-web&wptab=projects');
+    wp_safe_redirect($url);
+    exit;
   }
 
   public static function render() {
@@ -42,9 +38,12 @@ class TTB_WebProg_Admin {
     self::handle_resend($tab);
     self::handle_settings_save($tab);
 
-    if (self::$flash) {
-      $cls = self::$flash['type'] === 'success' ? 'ttb-alert--success' : 'ttb-alert--error';
-      echo '<div class="ttb-alert ' . $cls . '">' . esc_html(self::$flash['text']) . '</div>';
+    // Leer flash del transient (PRG)
+    $flash = get_transient('ttb_webprog_admin_flash');
+    if ($flash) {
+      delete_transient('ttb_webprog_admin_flash');
+      $cls = $flash['type'] === 'success' ? 'ttb-alert--success' : 'ttb-alert--error';
+      echo '<div class="ttb-alert ' . $cls . '">' . esc_html($flash['text']) . '</div>';
     }
 
     echo '<div class="ttb-tabs">';
@@ -75,13 +74,9 @@ class TTB_WebProg_Admin {
     echo '<a class="' . $cls . '" href="' . $url . '">' . $icon . esc_html($label) . '</a>';
   }
 
-  private static function set_flash($type, $text) {
-    self::$flash = ['type' => $type, 'text' => $text];
+  private static function action_url($tab = 'projects') {
+    return esc_url(home_url('/briefing?section=revisiones-web&wptab=' . $tab));
   }
-
-  /* ════════════════════════════════
-     ACCIONES POST
-  ════════════════════════════════ */
 
   private static function handle_project_create(&$tab) {
     if (!isset($_POST['ttb_wp_create'])) return;
@@ -92,9 +87,8 @@ class TTB_WebProg_Admin {
     $web_url = esc_url_raw($_POST['wp_weburl'] ?? '');
 
     if (!$name || !$emails || !$web_url) {
-      self::set_flash('error', 'Nombre, al menos un email y la URL de la web son obligatorios.');
-      $tab = 'projects';
-      return;
+      self::flash_and_redirect('error', 'Nombre, al menos un email y la URL de la web son obligatorios.',
+        home_url('/briefing?section=revisiones-web&wptab=projects'));
     }
 
     global $wpdb;
@@ -118,20 +112,12 @@ class TTB_WebProg_Admin {
 
     if ($project) {
       (new TTB_WebProg_Mailer())->send_review_invitation($project);
-
-      TTB_WebProg_DB::log($new_id, 'project_created', 'admin', [
-        'name'    => $name,
-        'emails'  => $emails,
-        'web_url' => $web_url,
-      ]);
-      TTB_WebProg_DB::log($new_id, 'email_invitation_sent', 'admin', [
-        'emails'  => $emails,
-        'trigger' => 'project_created',
-      ]);
+      TTB_WebProg_DB::log($new_id, 'project_created', 'admin', ['name' => $name, 'emails' => $emails, 'web_url' => $web_url]);
+      TTB_WebProg_DB::log($new_id, 'email_invitation_sent', 'admin', ['emails' => $emails, 'trigger' => 'project_created']);
     }
 
-    self::set_flash('success', 'Proyecto creado y email enviado.');
-    $tab = 'projects';
+    self::flash_and_redirect('success', 'Proyecto creado y email enviado.',
+      home_url('/briefing?section=revisiones-web&wptab=projects'));
   }
 
   private static function handle_project_edit(&$tab) {
@@ -144,9 +130,8 @@ class TTB_WebProg_Admin {
     $web_url = esc_url_raw($_POST['wp_weburl'] ?? '');
 
     if (!$id || !$name || !$emails || !$web_url) {
-      self::set_flash('error', 'Todos los campos son obligatorios.');
-      $tab = 'projects';
-      return;
+      self::flash_and_redirect('error', 'Todos los campos son obligatorios.',
+        home_url('/briefing?section=revisiones-web&wptab=projects'));
     }
 
     global $wpdb;
@@ -157,14 +142,10 @@ class TTB_WebProg_Admin {
       'updated_at' => TTB_WebProg_DB::now(),
     ], ['id' => $id]);
 
-    TTB_WebProg_DB::log($id, 'project_updated', 'admin', [
-      'name'    => $name,
-      'emails'  => $emails,
-      'web_url' => $web_url,
-    ]);
+    TTB_WebProg_DB::log($id, 'project_updated', 'admin', ['name' => $name, 'emails' => $emails, 'web_url' => $web_url]);
 
-    self::set_flash('success', 'Proyecto actualizado.');
-    $tab = 'projects';
+    self::flash_and_redirect('success', 'Proyecto actualizado.',
+      home_url('/briefing?section=revisiones-web&wptab=projects'));
   }
 
   private static function handle_project_delete(&$tab) {
@@ -179,15 +160,13 @@ class TTB_WebProg_Admin {
       "SELECT name FROM " . TTB_WebProg_DB::projects_table() . " WHERE id=%d", $id
     ));
 
-    TTB_WebProg_DB::log($id, 'project_deleted', 'admin', [
-      'name' => $project->name ?? '—',
-    ]);
+    TTB_WebProg_DB::log($id, 'project_deleted', 'admin', ['name' => $project->name ?? '—']);
 
     $wpdb->delete(TTB_WebProg_DB::projects_table(),  ['id' => $id]);
     $wpdb->delete(TTB_WebProg_DB::revisions_table(), ['project_id' => $id]);
 
-    self::set_flash('success', 'Proyecto eliminado.');
-    $tab = 'projects';
+    self::flash_and_redirect('success', 'Proyecto eliminado.',
+      home_url('/briefing?section=revisiones-web&wptab=projects'));
   }
 
   private static function handle_resend(&$tab) {
@@ -211,13 +190,10 @@ class TTB_WebProg_Admin {
       'updated_at'    => TTB_WebProg_DB::now(),
     ], ['id' => $id]);
 
-    TTB_WebProg_DB::log($id, 'email_invitation_sent', 'admin', [
-      'trigger'     => 'manual_resend',
-      'notif_count' => $new_count,
-    ]);
+    TTB_WebProg_DB::log($id, 'email_invitation_sent', 'admin', ['trigger' => 'manual_resend', 'notif_count' => $new_count]);
 
-    self::set_flash('success', 'Email reenviado.');
-    $tab = 'projects';
+    self::flash_and_redirect('success', 'Email reenviado.',
+      home_url('/briefing?section=revisiones-web&wptab=projects'));
   }
 
   private static function handle_settings_save(&$tab) {
@@ -236,17 +212,12 @@ class TTB_WebProg_Admin {
       'ttb_webprog_email_btn'          => sanitize_text_field($_POST['ttb_webprog_email_btn']       ?? ''),
     ];
 
-    foreach ($fields as $key => $val) {
-      update_option($key, $val);
-    }
+    foreach ($fields as $key => $val) update_option($key, $val);
 
-    self::set_flash('success', 'Configuración guardada.');
-    $tab = 'settings';
+    self::flash_and_redirect('success', 'Configuración guardada.',
+      home_url('/briefing?section=revisiones-web&wptab=settings'));
   }
 
-  /* ════════════════════════════════
-     RENDER: PROYECTOS
-  ════════════════════════════════ */
   private static function render_projects() {
     global $wpdb;
     $table    = TTB_WebProg_DB::projects_table();
@@ -258,7 +229,7 @@ class TTB_WebProg_Admin {
       $edit_p = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $edit_id));
     }
 
-    $action_url = esc_url(home_url('/briefing?section=revisiones-web&wptab=projects'));
+    $action_url = self::action_url('projects');
 
     echo '<div class="ttb-card"><h3>Nuevo proyecto web</h3></div>';
     echo '<form method="post" action="' . $action_url . '" class="ttb-card">';
@@ -279,7 +250,6 @@ class TTB_WebProg_Admin {
     echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_wp_create" value="1">Crear y enviar invitación</button></div>';
     echo '</form>';
 
-    // ── Modal de edición ──
     if ($edit_p) {
       $edit_emails = json_decode((string)$edit_p->emails, true);
       if (!is_array($edit_emails)) $edit_emails = [];
@@ -317,7 +287,6 @@ class TTB_WebProg_Admin {
       echo '</form></div></div>';
     }
 
-    // ── Listado de proyectos ──
     echo '<div class="ttb-card"><h3>Proyectos</h3>';
     if (!$projects) {
       echo '<p class="ttb-muted">No hay proyectos de programación web aún.</p></div>';
@@ -348,7 +317,6 @@ class TTB_WebProg_Admin {
         echo '<td style="font-size:13px">' . $emails_str . '</td>';
         echo '<td style="font-size:12px"><a href="' . esc_url($p->web_url) . '" target="_blank" style="color:var(--ttb-pink)">' . esc_html($web_short) . '</a></td>';
         echo '<td><span class="ttb-status ' . $sc . '">' . esc_html($sl) . '</span></td>';
-        // Fecha preferida de subida
         $go_live_fmt = TTB_WebProg_DB::format_go_live($p->go_live_date ?? null);
         if ($go_live_fmt) {
           $days_left = (int)ceil((strtotime($p->go_live_date) - time()) / 86400);
@@ -393,9 +361,6 @@ class TTB_WebProg_Admin {
     self::email_js();
   }
 
-  /* ════════════════════════════════
-     RENDER: REVISIONES
-  ════════════════════════════════ */
   private static function render_revisions() {
     global $wpdb;
     $projects_table  = TTB_WebProg_DB::projects_table();
@@ -433,7 +398,6 @@ class TTB_WebProg_Admin {
     echo '<p class="ttb-muted">';
     echo '<a href="' . esc_url($project->web_url) . '" target="_blank">🌐 Ver web</a> &nbsp;·&nbsp; <a href="' . esc_url(TTB_WebProg_DB::client_url($project->token)) . '" target="_blank">👁️ Ver como cliente</a>';
     echo '</p>';
-    // Mostrar fecha de subida elegida si existe
     if (!empty($project->go_live_date)) {
       $go_live_fmt = TTB_WebProg_DB::format_go_live($project->go_live_date);
       $days_left   = (int)ceil((strtotime($project->go_live_date) - time()) / 86400);
@@ -512,9 +476,6 @@ class TTB_WebProg_Admin {
     echo '</div>';
   }
 
-  /* ════════════════════════════════
-     RENDER: AUDITORÍA
-  ════════════════════════════════ */
   private static function render_audit() {
     global $wpdb;
     $audit_table    = TTB_WebProg_DB::audit_table();
@@ -574,7 +535,6 @@ class TTB_WebProg_Admin {
     echo '<p class="ttb-muted" style="margin:0">Registro completo de actividad del módulo Revisiones Prog. Web.</p>';
     echo '</div></div>';
 
-    // Mini-stats
     $stats = $wpdb->get_results("SELECT event, COUNT(*) as cnt FROM $audit_table GROUP BY event ORDER BY cnt DESC LIMIT 5");
     if ($stats) {
       echo '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">';
@@ -588,7 +548,6 @@ class TTB_WebProg_Admin {
       echo '</div>';
     }
 
-    // Formulario filtros
     echo '<form method="get" action="' . esc_url(home_url('/briefing')) . '" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;align-items:end">';
     echo '<input type="hidden" name="section" value="revisiones-web">';
     echo '<input type="hidden" name="wptab" value="audit">';
@@ -632,20 +591,17 @@ class TTB_WebProg_Admin {
     echo '<div style="display:flex;gap:8px;align-items:flex-end"><button class="ttb-btn" type="submit">Filtrar</button><a href="' . esc_url($base_url) . '" class="ttb-btn ttb-btn--ghost">Limpiar</a></div>';
     echo '</form>';
 
-    // Contador + exportar
     echo '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:14px">';
     echo '<p style="margin:0;font-size:13px;color:var(--ttb-muted)"><strong>' . number_format($total) . '</strong> registro' . ($total !== 1 ? 's' : '') . ' encontrado' . ($total !== 1 ? 's' : '') . '</p>';
     $export_params = array_filter(['section'=>'revisiones-web','wptab'=>'audit','f_project'=>$f_project?:'','f_event'=>$f_event,'f_actor'=>$f_actor,'f_from'=>$f_from,'f_to'=>$f_to,'f_search'=>$f_search,'ttb_wp_audit_export'=>'1']);
     echo '<a href="' . esc_url(add_query_arg($export_params, home_url('/briefing'))) . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">⬇️ Exportar CSV</a>';
     echo '</div></div>';
 
-    // Exportar CSV
     if (!empty($_GET['ttb_wp_audit_export'])) {
       self::export_csv($rows, $catalog);
       return;
     }
 
-    // Tabla
     if (!$rows) {
       echo '<div class="ttb-card"><p class="ttb-muted" style="text-align:center;padding:24px 0">No hay registros que coincidan con los filtros.</p></div>';
     } else {
@@ -692,7 +648,6 @@ class TTB_WebProg_Admin {
       echo '</tbody></table></div></div>';
     }
 
-    // Paginación
     if ($total_pages > 1) {
       echo '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">';
       if ($f_page > 1) echo '<a href="' . esc_url(self::audit_page_url($f_page - 1, $f_project, $f_event, $f_actor, $f_from, $f_to, $f_search)) . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">← Anterior</a>';
@@ -775,11 +730,8 @@ class TTB_WebProg_Admin {
 </script>';
   }
 
-  /* ════════════════════════════════
-     RENDER: CONFIGURACIÓN
-  ════════════════════════════════ */
   private static function render_settings() {
-    $action_url = esc_url(home_url('/briefing?section=revisiones-web&wptab=settings'));
+    $action_url  = esc_url(home_url('/briefing?section=revisiones-web&wptab=settings'));
 
     $days        = (int)get_option('ttb_webprog_resend_days',        7);
     $max_resends = (int)get_option('ttb_webprog_max_resends',        3);
@@ -827,10 +779,6 @@ class TTB_WebProg_Admin {
     echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_wp_settings" value="1">Guardar configuración</button></div>';
     echo '</form>';
   }
-
-  /* ════════════════════════════════
-     HELPERS
-  ════════════════════════════════ */
 
   private static function sanitize_emails($raw) {
     if (!is_array($raw)) $raw = [$raw];
