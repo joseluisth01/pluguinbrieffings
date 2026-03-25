@@ -6,11 +6,14 @@ if (class_exists('TTB_Clients_UI')) return;
  * TTB_Clients_UI
  * Pestaña central de CLIENTES (posición 1 en el menú principal).
  *
- * - Gestiona alta/edición/baja de clientes en ttb_clients.
- * - Los módulos (webrev, webprog, social) crean sus propios registros
- *   de forma lazy (primera vez que se usa). Aquí solo gestionamos el
- *   cliente central y propagamos cambios si ya existen registros vinculados.
- * - render_client_select() filtra clientes por servicio para los módulos.
+ * FIXES aplicados:
+ * - Error 1: El email de prebriefing se envía a TODOS los emails del cliente.
+ * - Error 2: Tras crear/editar/borrar cliente la redirección fuerza la recarga correcta.
+ * - Error 3: Al crear un cliente con servicio "social" se crea el registro en
+ *            ttb_social_clients PERO SIN enviar el email de bienvenida al portal.
+ *            El email de bienvenida al portal de redes se enviará automáticamente
+ *            cuando el cliente envíe (submit) su prebriefing de redes (en class-forms.php).
+ * - Error 4: La URL de autologin usa rawurlencode para soportar cualquier carácter.
  */
 class TTB_Clients_UI {
 
@@ -22,7 +25,7 @@ class TTB_Clients_UI {
   }
 
   public static function render_and_handle_forms() {
-    // Las acciones se procesan dentro de render() — hook point para el futuro.
+    // Hook point para el futuro.
   }
 
   public static function render() {
@@ -34,9 +37,9 @@ class TTB_Clients_UI {
     self::render_list();
   }
 
-  /* ════════════════════════
+  /* ════════════════════════════════════════
      ACCIONES POST
-  ════════════════════════ */
+  ════════════════════════════════════════ */
 
   private static function handle_create() {
     if (!isset($_POST['ttb_central_client_create'])) return;
@@ -59,7 +62,9 @@ class TTB_Clients_UI {
     $table = TTB_DB::clients_table();
 
     $exists = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE username=%s", $username));
-    if ($exists) $username .= '-' . wp_generate_password(4, false, false);
+    if ($exists) {
+      $username .= '-' . wp_generate_password(4, false, false);
+    }
 
     $wpdb->insert($table, [
       'name'       => $name,
@@ -74,12 +79,25 @@ class TTB_Clients_UI {
       'updated_at' => TTB_DB::now(),
     ]);
 
-    // Enviar email de acceso al prebriefing si tiene servicios de formulario
-    if (!empty($services)) {
-      (new TTB_Mailer())->send_client_access($name, $primary_email, $username, $password, $services, $lang);
+    $new_client_id = (int)$wpdb->insert_id;
+
+    // FIX Error 3: Si tiene servicio "social", crear el registro en ttb_social_clients
+    // para que aparezca en el módulo de Redes Sociales.
+    // IMPORTANTE: NO se envía email de bienvenida aquí. El email al portal de redes
+    // se envía automáticamente en class-forms.php cuando el cliente entrega
+    // su prebriefing de redes sociales.
+    if (in_array('social', $services, true) && $new_client_id) {
+      self::maybe_create_social_client($new_client_id, $name, $emails);
     }
 
-    self::flash_and_redirect('success', 'Cliente creado y email de acceso enviado.');
+    // FIX Error 1: Enviar el email de prebriefing a TODOS los emails del cliente
+    if (!empty($services)) {
+      self::send_access_to_all_emails($name, $emails, $username, $password, $services, $lang);
+    }
+
+    // FIX Error 2: redirigir explícitamente para que cargue la lista
+    self::flash_and_redirect('success', 'Cliente creado y email de acceso enviado.',
+      home_url('/briefing?section=clientes'));
   }
 
   private static function handle_edit() {
@@ -110,10 +128,15 @@ class TTB_Clients_UI {
       'updated_at' => TTB_DB::now(),
     ], ['id' => $client_id]);
 
-    // Propagar a módulos donde ya tiene registro vinculado
+    // Si ahora tiene social, crear registro si no existía (sin email de bienvenida)
+    if (in_array('social', $services, true)) {
+      self::maybe_create_social_client($client_id, $name, $emails);
+    }
+
     self::propagate_update($client_id, $name, $emails);
 
-    self::flash_and_redirect('success', 'Cliente actualizado correctamente.');
+    self::flash_and_redirect('success', 'Cliente actualizado correctamente.',
+      home_url('/briefing?section=clientes'));
   }
 
   private static function handle_delete() {
@@ -126,10 +149,10 @@ class TTB_Clients_UI {
     global $wpdb;
     $wpdb->delete(TTB_DB::clients_table(), ['id' => $client_id]);
     $wpdb->delete(TTB_DB::answers_table(), ['client_id' => $client_id]);
-    // Limpiar social si existe registro vinculado
     $wpdb->delete(TTB_Social_DB::clients_table(), ['ttb_client_id' => $client_id]);
 
-    self::flash_and_redirect('success', 'Cliente eliminado.');
+    self::flash_and_redirect('success', 'Cliente eliminado.',
+      home_url('/briefing?section=clientes'));
   }
 
   private static function handle_resend() {
@@ -145,21 +168,95 @@ class TTB_Clients_UI {
 
     $services = json_decode((string)$c->services, true) ?: [];
     $lang     = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
-    (new TTB_Mailer())->send_client_access(
-      (string)$c->name, (string)$c->email, (string)$c->username, (string)$c->name, $services, $lang
+    $emails   = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
+
+    // FIX Error 1: reenviar a todos los emails. Solo se reenvía el prebriefing,
+    // NO el email del portal de redes.
+    self::send_access_to_all_emails(
+      (string)$c->name,
+      $emails,
+      (string)$c->username,
+      (string)$c->name,
+      $services,
+      $lang
     );
 
-    self::flash_and_redirect('success', 'Email de acceso reenviado.');
+    self::flash_and_redirect('success', 'Email de acceso reenviado.',
+      home_url('/briefing?section=clientes'));
   }
 
-  /* ════════════════════════
-     PROPAGACIÓN A MÓDULOS
-  ════════════════════════ */
+  /* ════════════════════════════════════════
+     FIX Error 1: Envío a TODOS los emails
+  ════════════════════════════════════════ */
 
   /**
-   * Propaga nombre y emails a los módulos donde ya existe un registro vinculado.
-   * Solo actualiza — NO crea registros nuevos (eso es responsabilidad de cada módulo).
+   * Envía el email de acceso al prebriefing a todos los emails del cliente.
    */
+  private static function send_access_to_all_emails($name, $emails, $username, $password, $services, $lang) {
+    $mailer = new TTB_Mailer();
+    foreach ($emails as $email) {
+      if (!is_email($email)) continue;
+      $mailer->send_client_access($name, $email, $username, $password, $services, $lang);
+    }
+  }
+
+  /* ════════════════════════════════════════
+     FIX Error 3: Crear registro social SIN email
+  ════════════════════════════════════════ */
+
+  /**
+   * Crea (o actualiza) el registro en ttb_social_clients vinculado al cliente central.
+   *
+   * NUNCA envía el email de bienvenida al portal de redes desde aquí.
+   * El email de bienvenida lo gestiona class-forms.php al hacer submit del prebriefing.
+   */
+  public static function maybe_create_social_client($client_id, $name, $emails) {
+    global $wpdb;
+    $sc_table = TTB_Social_DB::clients_table();
+
+    $existing = $wpdb->get_var($wpdb->prepare(
+      "SELECT id FROM $sc_table WHERE ttb_client_id = %d LIMIT 1",
+      $client_id
+    ));
+
+    if ($existing) {
+      // Ya existe: solo sincronizar nombre y emails
+      $wpdb->update($sc_table, [
+        'name'       => $name,
+        'emails'     => wp_json_encode(array_values($emails)),
+        'updated_at' => TTB_Social_DB::now(),
+      ], ['ttb_client_id' => $client_id]);
+      return;
+    }
+
+    // Crear nuevo registro. Sin send_welcome() — ese email se dispara en class-forms.php
+    $token = TTB_Social_DB::generate_token();
+
+    $wpdb->insert($sc_table, [
+      'ttb_client_id' => $client_id,
+      'name'          => $name,
+      'emails'        => wp_json_encode(array_values($emails)),
+      'token'         => $token,
+      'networks'      => wp_json_encode([]),
+      'notes'         => '',
+      'status'        => 'active',
+      'created_at'    => TTB_Social_DB::now(),
+      'updated_at'    => TTB_Social_DB::now(),
+    ]);
+
+    $sc_id = (int)$wpdb->insert_id;
+    if ($sc_id) {
+      TTB_Social_DB::log($sc_id, null, 'client_created', 'admin', [
+        'source'    => 'ttb_clients_sync',
+        'client_id' => $client_id,
+      ]);
+    }
+  }
+
+  /* ════════════════════════════════════════
+     PROPAGACIÓN A MÓDULOS
+  ════════════════════════════════════════ */
+
   public static function propagate_update($client_id, $name, $emails) {
     global $wpdb;
     $emails_json = wp_json_encode(array_values($emails));
@@ -174,17 +271,10 @@ class TTB_Clients_UI {
     }
   }
 
-  /* ════════════════════════
+  /* ════════════════════════════════════════
      HELPERS PÚBLICOS
-  ════════════════════════ */
+  ════════════════════════════════════════ */
 
-  /**
-   * Devuelve clientes de ttb_clients filtrados por servicio(s).
-   * Usado por webrev, webprog y social para sus selects.
-   *
-   * @param string|array $services  Ej: 'social' o ['design']
-   * @return array
-   */
   public static function get_clients_by_services($services) {
     global $wpdb;
     if (!is_array($services)) $services = [$services];
@@ -198,13 +288,6 @@ class TTB_Clients_UI {
     }));
   }
 
-  /**
-   * Renderiza un <select> de clientes filtrado por servicio.
-   * Llamado por los formularios de creación en webrev, webprog y social.
-   *
-   * Si no hay clientes con ese servicio, muestra un mensaje con enlace
-   * a la pestaña Clientes en lugar de un select vacío.
-   */
   public static function render_client_select($field_name, $services, $selected_id = 0, $required = true) {
     $clients = self::get_clients_by_services($services);
     $service_label = is_array($services) ? implode('/', $services) : $services;
@@ -229,9 +312,9 @@ class TTB_Clients_UI {
     echo '</select>';
   }
 
-  /* ════════════════════════
+  /* ════════════════════════════════════════
      RENDER: FORMULARIO ALTA
-  ════════════════════════ */
+  ════════════════════════════════════════ */
 
   private static function render_create_form() {
     $action_url = esc_url(home_url('/briefing?section=clientes'));
@@ -244,7 +327,6 @@ class TTB_Clients_UI {
     echo '<form method="post" action="' . $action_url . '" class="ttb-card">';
     wp_nonce_field('ttb_central_client_create');
 
-    // Nombre + idioma
     echo '<div class="ttb-grid2">';
     echo '<div><label>Nombre del cliente <span class="ttb-required">*</span></label>';
     echo '<input class="ttb-input" type="text" name="client_name" required placeholder="Empresa Ejemplo S.L."></div>';
@@ -255,10 +337,9 @@ class TTB_Clients_UI {
     echo '</div></div>';
     echo '</div>';
 
-    // Emails múltiples
     echo '<div style="margin-top:12px">';
     echo '<label>Emails del cliente <span class="ttb-required">*</span></label>';
-    echo '<p class="ttb-muted" style="font-size:13px;margin:2px 0 8px">El primer email es el principal (acceso al portal y comunicaciones). Los demás recibirán copias de los emails de módulos.</p>';
+    echo '<p class="ttb-muted" style="font-size:13px;margin:2px 0 8px">El primer email es el principal (acceso al portal y comunicaciones). Los demás recibirán copias completas de los emails.</p>';
     echo '<div id="ttb-cc-emails-create" style="display:flex;flex-direction:column;gap:8px">';
     echo '<div class="ttb-cc-email-row" style="display:flex;gap:8px;align-items:center">';
     echo '<input class="ttb-input" type="email" name="client_emails[]" placeholder="email@cliente.com" required style="flex:1">';
@@ -267,16 +348,16 @@ class TTB_Clients_UI {
     echo '<button type="button" class="ttb-btn ttb-btn--ghost ttb-btn--sm ttb-cc-add-email" data-target="ttb-cc-emails-create" style="margin-top:8px">+ Añadir email</button>';
     echo '</div>';
 
-    // Servicios
     echo '<div style="margin-top:14px">';
     echo '<label>Servicios contratados</label>';
     echo '<p class="ttb-muted" style="font-size:13px;margin:2px 0 8px">Determina en qué módulos aparecerá este cliente al crear proyectos.</p>';
     echo '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:8px;margin-top:4px">';
     foreach ([
-      'design' => ['🎨', 'Diseño / Design',    'Revisiones Diseños'],
-      'social' => ['📣', 'Redes / Social',      'Redes Sociales'],
-      'seo'    => ['🚀', 'SEO',                 'Solo Prebriefing SEO'],
-      'web'    => ['🌐', 'Web',                 'Revisiones Prog. Web'],
+      'design'   => ['🎨', 'Diseño / Design',    'Revisiones Diseños'],
+      'social'   => ['📣', 'Redes / Social',      'Redes Sociales'],
+      'seo'      => ['🚀', 'SEO',                 'Solo Prebriefing SEO'],
+      'web'      => ['🌐', 'Web',                 'Revisiones Prog. Web'],
+      'reservas' => ['🍽️', 'Reservas',            'Gestor de Reservas Restaurante'],
     ] as $k => [$icon, $label, $module]) {
       echo '<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;background:#f9fafb;border:1.5px solid var(--ttb-border);border-radius:12px;padding:10px 12px">';
       echo '<input type="checkbox" name="services[]" value="' . esc_attr($k) . '" style="margin-top:2px">';
@@ -295,9 +376,9 @@ class TTB_Clients_UI {
     self::email_js('ttb-cc-emails-create');
   }
 
-  /* ════════════════════════
+  /* ════════════════════════════════════════
      RENDER: LISTADO
-  ════════════════════════ */
+  ════════════════════════════════════════ */
 
   private static function render_list() {
     global $wpdb;
@@ -310,7 +391,6 @@ class TTB_Clients_UI {
       $edit_c = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $edit_id));
     }
 
-    // Modal de edición
     if ($edit_c) {
       $edit_emails   = json_decode((string)($edit_c->emails ?? ''), true) ?: [$edit_c->email];
       $edit_services = json_decode((string)$edit_c->services, true) ?: [];
@@ -335,6 +415,7 @@ class TTB_Clients_UI {
       echo '</div>';
 
       echo '<div style="margin-top:10px"><label>Emails</label>';
+      echo '<p class="ttb-muted" style="font-size:12px;margin:2px 0 6px">El primero es el principal. Todos recibirán copias de los emails.</p>';
       echo '<div id="ttb-cc-emails-edit" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">';
       foreach ($edit_emails as $i => $em) {
         $rm = $i > 0 ? '' : 'style="display:none"';
@@ -348,7 +429,7 @@ class TTB_Clients_UI {
       echo '</div>';
 
       echo '<div style="margin-top:10px"><label>Servicios</label><div class="ttb-checks" style="margin-top:8px">';
-      foreach (['design' => '🎨 Diseño', 'social' => '📣 Redes', 'seo' => '🚀 SEO', 'web' => '🌐 Web'] as $k => $v) {
+      foreach (['design' => '🎨 Diseño', 'social' => '📣 Redes', 'seo' => '🚀 SEO', 'web' => '🌐 Web', 'reservas' => '🍽️ Reservas'] as $k => $v) {
         $checked = in_array($k, $edit_services, true) ? 'checked' : '';
         echo '<label class="ttb-check"><input type="checkbox" name="services[]" value="' . esc_attr($k) . '" ' . $checked . '> ' . esc_html($v) . '</label>';
       }
@@ -363,7 +444,6 @@ class TTB_Clients_UI {
       self::email_js('ttb-cc-emails-edit');
     }
 
-    // Tabla de clientes
     echo '<div class="ttb-card"><h3>Listado de clientes</h3>';
 
     if (!$clients) {
@@ -375,8 +455,8 @@ class TTB_Clients_UI {
     $action_url    = esc_url(home_url('/briefing?section=clientes'));
     $status_labels = ['pendiente' => 'Pendiente', 'en_progreso' => 'En progreso', 'enviado' => 'Enviado'];
     $status_cls    = ['pendiente' => 'ttb-status--pending', 'en_progreso' => 'ttb-status--progress', 'enviado' => 'ttb-status--sent'];
-    $service_icons = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐'];
-    $service_names = ['design' => 'Diseño', 'social' => 'Redes', 'seo' => 'SEO', 'web' => 'Web'];
+    $service_icons = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐', 'reservas' => '🍽️'];
+    $service_names = ['design' => 'Diseño', 'social' => 'Redes', 'seo' => 'SEO', 'web' => 'Web', 'reservas' => 'Reservas'];
 
     echo '<div class="ttb-tablewrap"><table class="ttb-table"><thead><tr>';
     echo '<th>Cliente</th><th>Emails</th><th>Idioma</th><th>Servicios</th><th>Estado</th><th>Acciones</th>';
@@ -424,9 +504,9 @@ class TTB_Clients_UI {
     echo '</tbody></table></div></div>';
   }
 
-  /* ════════════════════════
-     HELPERS
-  ════════════════════════ */
+  /* ════════════════════════════════════════
+     HELPERS PRIVADOS
+  ════════════════════════════════════════ */
 
   private static function sanitize_emails($raw) {
     if (!is_array($raw)) $raw = [$raw];

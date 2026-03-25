@@ -18,126 +18,126 @@ nocache_headers();
 <head>
 <meta charset="<?php bloginfo('charset'); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-
 <title>Prebriefing — TicTac Comunicación</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
-
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
 <meta name="robots" content="noindex, nofollow, noarchive">
-
 <?php wp_head(); ?>
-
 <style>
-
-.ttb-header{
-  background:#D72173;
-  width:100%;
-  position:sticky;
-  top:0;
-  z-index:999999;
+.ttb-header {
+  background: #D72173;
+  width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 999999;
 }
-
-.ttb-header-inner{
-  max-width:1200px;
-  margin:auto;
-  height:70px;
-  position:relative;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+.ttb-header-inner {
+  max-width: 1200px;
+  margin: auto;
+  height: 70px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-
-.ttb-logo{
-  position:absolute;
-  left:50%;
-  transform:translateX(-50%);
+.ttb-logo { position: absolute; left: 50%; transform: translateX(-50%); }
+.ttb-logo img { height: 40px; display: block; }
+.ttb-logout {
+  position: absolute;
+  right: 20px;
+  background: white;
+  color: #D72173;
+  padding: 8px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-family: Montserrat, Arial;
 }
-
-.ttb-logo img{
-  height:40px;
-  display:block;
-}
-
-.ttb-logout{
-  position:absolute;
-  right:20px;
-  background:white;
-  color:#D72173;
-  padding:8px 14px;
-  border-radius:8px;
-  text-decoration:none;
-  font-weight:600;
-  font-family:Montserrat, Arial;
-}
-
-.ttb-logout:hover{
-  background:#f4f4f4;
-}
-
-.ttb-main{
-  max-width:1200px;
-  margin:auto;
-  padding:30px 20px;
-}
-
+.ttb-logout:hover { background: #f4f4f4; }
+.ttb-main { max-width: 1200px; margin: auto; padding: 30px 20px; }
 </style>
-
 </head>
-
 <body <?php body_class('ttb-body'); ?>>
 
 <header class="ttb-header">
-
-<div class="ttb-header-inner">
-
-<a class="ttb-logo" href="<?php echo esc_url(home_url('/briefing')); ?>">
-<img src="https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png" alt="TicTac Comunicación">
-</a>
-
-<?php if ($auth->current()): ?>
-
-<a class="ttb-logout" href="<?php echo esc_url(add_query_arg(['ttb_logout'=>1],home_url('/briefing'))); ?>">
-<?php echo esc_html($logout_label); ?>
-</a>
-
-<?php endif; ?>
-
-</div>
-
+  <div class="ttb-header-inner">
+    <a class="ttb-logo" href="<?php echo esc_url(home_url('/briefing')); ?>">
+      <img src="https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png" alt="TicTac Comunicación">
+    </a>
+    <?php if ($auth->current()): ?>
+      <a class="ttb-logout" href="<?php echo esc_url(add_query_arg(['ttb_logout' => 1], home_url('/briefing'))); ?>">
+        <?php echo esc_html($logout_label); ?>
+      </a>
+    <?php endif; ?>
+  </div>
 </header>
 
 <div class="ttb-main">
 
 <?php if ($flash): ?>
-<div class="ttb-flash ttb-flash--<?php echo esc_attr($flash['type']); ?>">
-<?php echo esc_html($flash['text']); ?>
-</div>
+  <div class="ttb-flash ttb-flash--<?php echo esc_attr($flash['type']); ?>">
+    <?php echo esc_html($flash['text']); ?>
+  </div>
 <?php endif; ?>
 
 <?php
+// ── Lógica de acciones POST de módulos inline ─────────────────────────
+// Cuando los portales de diseño/social/web se renderizan dentro del
+// portal del cliente (tab inline), sus formularios POST vuelven aquí.
+// Los capturamos y delegamos al handler correcto antes de renderizar.
 
-if (!$auth->current()){
+if ($auth->is_client() && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
-include TTB_PATH.'templates/login.php';
+  // Acción de revisión de diseño (webrev)
+  if (isset($_POST['ttb_webrev_action'])) {
+    $webrev_token = sanitize_text_field($_POST['ttb_webrev_token'] ?? '');
+    if ($webrev_token) {
+      $project = TTB_WebRev_DB::get_project_by_token($webrev_token);
+      if ($project) {
+        // handle_submit es privado, pero render() lo llama internamente
+        // al detectar POST con ttb_webrev_action presente.
+        // Lo invocamos a través del render con $_GET simulado.
+        $_GET['webrev'] = $webrev_token;
+        TTB_WebRev_Client::render($webrev_token);
+        exit; // render hace js_redirect internamente
+      }
+    }
+  }
 
-}elseif ($auth->is_admin()){
+  // Acción del portal social (approve/reject/upload)
+  if (isset($_POST['ttb_social_action'])) {
+    $social_token = sanitize_text_field($_POST['ttb_social_token'] ?? '');
+    if ($social_token) {
+      TTB_Social_Client::render($social_token);
+      exit;
+    }
+  }
 
-include TTB_PATH.'templates/admin.php';
-
-}else{
-
-include TTB_PATH.'templates/client.php';
-
+  // Acción de revisión de prog. web (webprog)
+  if (isset($_POST['ttb_webprog_action'])) {
+    $webprog_token = sanitize_text_field($_POST['ttb_webprog_token'] ?? '');
+    if ($webprog_token) {
+      TTB_WebProg_Client::render($webprog_token);
+      exit;
+    }
+  }
 }
+// ─────────────────────────────────────────────────────────────────────
 
+if (!$auth->current()) {
+  include TTB_PATH . 'templates/login.php';
+} elseif ($auth->is_admin()) {
+  include TTB_PATH . 'templates/admin.php';
+} else {
+  include TTB_PATH . 'templates/client.php';
+}
 ?>
 
 </div>
 
 <?php
-// ── Modal de envío exitoso ──────────────────────────────────
+// ── Modal de envío exitoso ──────────────────────────────────────────
 if ($auth->is_client()) {
   $modal_svc = TTB_Forms::consume_modal($auth->client_id());
   if ($modal_svc) {
@@ -156,18 +156,8 @@ if ($auth->is_client()) {
       ],
     ];
     $modal_subs = [
-      'es' => [
-        'design' => 'Diseño',
-        'social' => 'Redes Sociales',
-        'seo'    => 'SEO',
-        'web'    => 'Web',
-      ],
-      'en' => [
-        'design' => 'Design',
-        'social' => 'Social Media',
-        'seo'    => 'SEO',
-        'web'    => 'Web',
-      ],
+      'es' => ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web'],
+      'en' => ['design' => 'Design', 'social' => 'Social Media',   'seo' => 'SEO', 'web' => 'Web'],
     ];
     $modal_emojis = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐'];
     $modal_msgs = [
@@ -196,26 +186,18 @@ if ($auth->is_client()) {
     </div>
     <script>
     (function(){
-      var overlay = document.getElementById('ttbSuccessModal');
+      var overlay  = document.getElementById('ttbSuccessModal');
       var closeBtn = document.getElementById('ttbSuccessClose');
       if (!overlay) return;
-
       var spinner = document.getElementById('ttbSendingOverlay');
       if (spinner) spinner.classList.remove('active');
-
       function closeModal() {
         overlay.classList.add('ttb-modal-overlay--out');
-        overlay.addEventListener('animationend', function() {
-          overlay.remove();
-        }, { once: true });
+        overlay.addEventListener('animationend', function(){ overlay.remove(); }, { once: true });
       }
       closeBtn.addEventListener('click', closeModal);
-      overlay.addEventListener('click', function(e) {
-        if (e.target === overlay) closeModal();
-      });
-      document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeModal();
-      });
+      overlay.addEventListener('click', function(e){ if (e.target === overlay) closeModal(); });
+      document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
     })();
     </script>
     <?php

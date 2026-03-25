@@ -15,20 +15,19 @@ class TTB_Auth {
     $uri    = $_SERVER['REQUEST_URI'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'] ?? '';
 
-    // ✅ Solo actuar en el portal /briefing
+    // Solo actuar en el portal /briefing
     if (strpos($uri, '/briefing') !== 0) {
       return;
     }
 
-    // ✅ Ignorar HEAD requests — Chrome los lanza automáticamente
-    // y pueden interferir con cookies y estado de sesión
+    // Ignorar HEAD requests
     if ($method === 'HEAD') {
       return;
     }
 
     TTB_Logger::log('Auth handle start', ['method' => $method, 'uri' => $uri]);
 
-    // ✅ Logout del portal
+    // Logout del portal
     if (
       isset($_GET['ttb_logout']) ||
       (isset($_GET['ttb_action']) && $_GET['ttb_action'] === 'logout')
@@ -38,10 +37,13 @@ class TTB_Auth {
       exit;
     }
 
-    // autologin por URL: /briefing?ttb_u=usuario&ttb_p=contraseña
+    // FIX Error 4: autologin por URL: /briefing?ttb_u=usuario&ttb_p=contraseña
+    // La contraseña viene URL-encoded, PHP la decodifica automáticamente en $_GET
     if (isset($_GET['ttb_u'], $_GET['ttb_p'])) {
       $u = sanitize_text_field($_GET['ttb_u']);
-      $p = (string)$_GET['ttb_p'];
+      // FIX: NO sanitizar la contraseña con sanitize_text_field porque puede
+      // contener caracteres que se eliminarían. Usar el valor raw decodificado.
+      $p = wp_unslash((string)$_GET['ttb_p']);
 
       $admin_user = (string)get_option('ttb_admin_user', 'tictac');
       $admin_hash = (string)get_option('ttb_admin_pass_hash', '');
@@ -67,6 +69,8 @@ class TTB_Auth {
         exit;
       }
 
+      // Autologin fallido: log para debug
+      TTB_Logger::log('Autologin failed', ['username' => $u]);
       wp_safe_redirect(home_url('/briefing'));
       exit;
     }
@@ -81,7 +85,8 @@ class TTB_Auth {
       }
 
       $u = sanitize_text_field($_POST['username'] ?? '');
-      $p = (string)($_POST['password'] ?? '');
+      // FIX: la contraseña del formulario tampoco debe sanitizarse agresivamente
+      $p = wp_unslash((string)($_POST['password'] ?? ''));
 
       TTB_Logger::log('Login attempt', ['username' => $u]);
 
@@ -134,7 +139,7 @@ class TTB_Auth {
 
   private function cookie_domain() {
     return '';
-}
+  }
 
   private function get_client_by_username($username) {
     global $wpdb;
@@ -142,19 +147,19 @@ class TTB_Auth {
     return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE username = %s LIMIT 1", $username));
   }
 
-public function logout() {
+  public function logout() {
     $secure = $this->is_https();
     setcookie(self::COOKIE, '', [
-        'expires'  => time() - 3600,
-        'path'     => '/',
-        'domain'   => '',
-        'secure'   => $secure,
-        'httponly' => true,
-        'samesite' => 'Lax',
+      'expires'  => time() - 3600,
+      'path'     => '/',
+      'domain'   => '',
+      'secure'   => $secure,
+      'httponly' => true,
+      'samesite' => 'Lax',
     ]);
     unset($_COOKIE[self::COOKIE]);
     TTB_Logger::log('Logged out');
-}
+  }
 
   public function current() {
     $raw = $_COOKIE[self::COOKIE] ?? '';
@@ -213,25 +218,22 @@ public function logout() {
     $sig = hash_hmac('sha256', $payload_b64, $this->secret());
     $cookie = $payload_b64 . '.' . $sig;
 
-    $path   = '/';
-    $domain = $this->cookie_domain();
     $secure = $this->is_https();
 
     setcookie(self::COOKIE, $cookie, [
-    'expires'  => $data['exp'],
-    'path'     => $path,
-    'domain'   => '',
-    'secure'   => $secure,
-    'httponly' => true,
-    'samesite' => 'Lax',
-]);
+      'expires'  => $data['exp'],
+      'path'     => '/',
+      'domain'   => '',
+      'secure'   => $secure,
+      'httponly' => true,
+      'samesite' => 'Lax',
+    ]);
     $_COOKIE[self::COOKIE] = $cookie;
 
     TTB_Logger::log('Session cookie set', [
       'role'      => ($data['role'] ?? ''),
       'client_id' => ($data['client_id'] ?? 0),
       'secure'    => $secure,
-      'domain'    => $domain,
     ]);
   }
 

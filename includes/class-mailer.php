@@ -71,10 +71,24 @@ class TTB_Mailer {
   }
 
   /* ─────────────────────────────────────────────
+     FIX Error 4: Construir la URL de autologin
+     usando rawurlencode para soportar cualquier
+     carácter en usuario y contraseña, incluyendo
+     espacios, tildes, símbolos, etc.
+  ───────────────────────────────────────────── */
+  private function build_autologin_url($portal, $username, $password) {
+    return $portal
+      . '?ttb_u=' . rawurlencode($username)
+      . '&ttb_p=' . rawurlencode($password);
+  }
+
+  /* ─────────────────────────────────────────────
      TEMPLATE EMAIL ES
   ───────────────────────────────────────────── */
   private function tpl_access_es($name, $username, $password, $portal, $logo, $pink, $pills) {
-    $autologin_url = esc_url(add_query_arg(['ttb_u' => $username, 'ttb_p' => $password], $portal));
+    // FIX Error 4: usar rawurlencode en lugar de add_query_arg / esc_url
+    // porque esc_url elimina caracteres que son válidos en contraseñas.
+    $autologin_url = $this->build_autologin_url($portal, $username, $password);
     return '
 <!DOCTYPE html>
 <html lang="es">
@@ -128,7 +142,7 @@ class TTB_Mailer {
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
           <tr>
             <td align="center">
-              <a href="' . $autologin_url . '" target="_blank" rel="noopener"
+              <a href="' . esc_attr($autologin_url) . '" target="_blank" rel="noopener"
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
@@ -173,7 +187,8 @@ class TTB_Mailer {
      TEMPLATE EMAIL EN
   ───────────────────────────────────────────── */
   private function tpl_access_en($name, $username, $password, $portal, $logo, $pink, $pills) {
-    $autologin_url = esc_url(add_query_arg(['ttb_u' => $username, 'ttb_p' => $password], $portal));
+    // FIX Error 4: usar rawurlencode
+    $autologin_url = $this->build_autologin_url($portal, $username, $password);
     return '
 <!DOCTYPE html>
 <html lang="en">
@@ -227,7 +242,7 @@ class TTB_Mailer {
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
           <tr>
             <td align="center">
-              <a href="' . $autologin_url . '" target="_blank" rel="noopener"
+              <a href="' . esc_attr($autologin_url) . '" target="_blank" rel="noopener"
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
@@ -326,7 +341,7 @@ class TTB_Mailer {
                style="background:#f9fafb;border-radius:12px;margin-bottom:24px">
           <tr>
             <td style="padding:18px 22px">
-              <p style="margin:0 0 10px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">Datos del cliente</p>
+              <p style="margin:0 0 10px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase">Datos del cliente</p>
               <p style="margin:0 0 6px;font-size:15px;color:#1a1a2e"><strong>Nombre:</strong> ' . esc_html($client_name) . '</p>
               <p style="margin:0 0 6px;font-size:15px;color:#1a1a2e">
                 <strong>Email:</strong>

@@ -7,15 +7,13 @@ class TTB_Forms {
     add_action('init', [$this, 'handle_form_submit']);
   }
 
-  /**
-   * Devuelve el schema del formulario teniendo en cuenta el idioma del cliente.
-   */
   public static function get_schema($service, $lang = 'es') {
     $map = [
-      'design' => 'ttb_form_design',
-      'social' => 'ttb_form_social',
-      'seo'    => 'ttb_form_seo',
-      'web'    => 'ttb_form_web',
+      'design'   => 'ttb_form_design',
+      'social'   => 'ttb_form_social',
+      'seo'      => 'ttb_form_seo',
+      'web'      => 'ttb_form_web',
+      'reservas' => 'ttb_form_reservas',
     ];
     $opt = $map[$service] ?? '';
     if (!$opt) return [];
@@ -34,7 +32,7 @@ class TTB_Forms {
 
     $client_id = $auth->client_id();
     $service   = sanitize_text_field($_POST['service'] ?? '');
-    if (!in_array($service, ['design', 'social', 'seo', 'web'], true)) return;
+    if (!in_array($service, ['design', 'social', 'seo', 'web', 'reservas'], true)) return;
 
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_form_' . $service)) {
       $auth->flash('error', 'Sesión inválida. Recarga y prueba otra vez.');
@@ -98,6 +96,12 @@ class TTB_Forms {
     $mode  = sanitize_text_field($_POST['submit_mode'] ?? 'save');
     $sent  = ($mode === 'send') ? 1 : 0;
 
+    // Comprobar si ya estaba enviado antes (para no reenviar emails)
+    $already_sent = (int)$wpdb->get_var($wpdb->prepare(
+      "SELECT sent FROM $table WHERE client_id=%d AND service=%s",
+      $client_id, $service
+    ));
+
     $wpdb->query($wpdb->prepare(
       "INSERT INTO $table (client_id, service, answers, sent, updated_at)
        VALUES (%d, %s, %s, %d, %s)
@@ -110,16 +114,20 @@ class TTB_Forms {
     delete_transient('ttb_form_errors_' . $client_id . '_' . $service);
     delete_transient('ttb_form_values_' . $client_id . '_' . $service);
 
-    if ($sent) {
+    if ($sent && !$already_sent) {
+      // ── Es un envío nuevo (no re-envío de algo ya enviado) ──
+
       $clients_table = TTB_DB::clients_table();
-      $client = $wpdb->get_row($wpdb->prepare("SELECT name, email FROM $clients_table WHERE id=%d", $client_id));
+      $client = $wpdb->get_row($wpdb->prepare("SELECT * FROM $clients_table WHERE id=%d", $client_id));
 
       if ($client) {
         $client_name  = (string)$client->name;
         $client_email = (string)$client->email;
 
+        // Avisar al departamento interno
         (new TTB_Mailer())->send_department_alert($client_name, $client_email, $service);
 
+        // Crear doc en Google Drive
         try {
           $drive   = new TTB_Drive();
           $doc_url = $drive->create_briefing_doc($client_name, $service, $schema, $answers);
@@ -134,8 +142,24 @@ class TTB_Forms {
         } catch (Exception $e) {
           error_log('TTB Drive upload failed: ' . $e->getMessage());
         }
+
+        // ── FIX FLUJO REDES SOCIALES ──────────────────────────────────────
+        // Cuando el cliente envía el prebriefing de REDES SOCIALES,
+        // se le envía el email de bienvenida al portal de redes.
+        // Este es el único momento en que ese email se dispara.
+        if ($service === 'social') {
+          $this->send_social_portal_welcome($client_id, $client);
+        }
+        // ─────────────────────────────────────────────────────────────────
       }
 
+      set_transient('ttb_show_modal_' . $client_id, $service, 120);
+      wp_safe_redirect(home_url('/briefing') . '#modal-sent');
+      exit;
+    }
+
+    if ($sent && $already_sent) {
+      // Ya estaba enviado antes, solo guardamos cambios sin reenviar emails
       set_transient('ttb_show_modal_' . $client_id, $service, 120);
       wp_safe_redirect(home_url('/briefing') . '#modal-sent');
       exit;
@@ -145,6 +169,46 @@ class TTB_Forms {
     $auth->flash('success', $msg);
     wp_safe_redirect(home_url('/briefing'));
     exit;
+  }
+
+  /**
+   * Envía el email de bienvenida al portal de Redes Sociales.
+   * Se llama únicamente cuando el cliente hace submit del prebriefing de social.
+   *
+   * Busca el registro en ttb_social_clients vinculado a este cliente central.
+   * Si por alguna razón no existe todavía, lo crea primero.
+   */
+  private function send_social_portal_welcome($client_id, $client) {
+    global $wpdb;
+    $sc_table = TTB_Social_DB::clients_table();
+
+    $sc_client = $wpdb->get_row($wpdb->prepare(
+      "SELECT * FROM $sc_table WHERE ttb_client_id = %d LIMIT 1",
+      $client_id
+    ));
+
+    if (!$sc_client) {
+      // El registro social no existe todavía (caso raro, pero cubierto).
+      // Lo creamos ahora y luego enviamos el email.
+      $emails = json_decode((string)($client->emails ?? ''), true) ?: [$client->email];
+      TTB_Clients_UI::maybe_create_social_client($client_id, (string)$client->name, $emails);
+
+      $sc_client = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $sc_table WHERE ttb_client_id = %d LIMIT 1",
+        $client_id
+      ));
+    }
+
+    if ($sc_client) {
+      (new TTB_Social_Mailer())->send_welcome($sc_client);
+      TTB_Social_DB::log(
+        (int)$sc_client->id,
+        null,
+        'email_welcome_sent',
+        'system',
+        ['trigger' => 'social_briefing_submitted']
+      );
+    }
   }
 
   private function update_client_status($client_id) {

@@ -3,7 +3,6 @@ if (!defined('ABSPATH')) exit;
 
 class TTB_Admin_UI {
 
-  /* ── Flash via transient (PRG pattern) ── */
   private static function flash_and_redirect($type, $text, $url = null) {
     set_transient('ttb_admin_flash', ['type' => $type, 'text' => $text], 60);
     if (!$url) {
@@ -24,15 +23,12 @@ class TTB_Admin_UI {
     $section = sanitize_text_field($_GET['section'] ?? 'clientes');
     $tab     = sanitize_text_field($_GET['tab']     ?? 'clients');
 
-    // Manejar acciones según sección
     if ($section === 'clientes') {
       TTB_Clients_UI::render_and_handle_forms();
     } elseif ($section === 'briefings') {
       self::handle_forms_save($tab);
-      // Cliente create/edit/delete ahora delegado a TTB_Clients_UI vía section=clientes
     }
 
-    // Manejar edición de redes sociales (networks config)
     TTB_Social_Admin::handle_client_edit_networks_action();
 
     echo '<div class="ttb-container">';
@@ -40,7 +36,6 @@ class TTB_Admin_UI {
     echo '<h2 style="text-align:center">PORTAL CLIENTE</h2>';
     echo '</div>';
 
-    // Leer flash del transient
     $flash = get_transient('ttb_admin_flash');
     if ($flash) {
       delete_transient('ttb_admin_flash');
@@ -48,7 +43,6 @@ class TTB_Admin_UI {
       echo '<div class="ttb-alert ' . $cls . '">' . esc_html($flash['text']) . '</div>';
     }
 
-    // ── Pestañas principales ──
     echo '<div class="ttb-tabs ttb-tabs--main">';
     self::section_link('clientes',       'Clientes',              $section);
     self::section_link('briefings',      'Prebriefings',          $section);
@@ -58,7 +52,6 @@ class TTB_Admin_UI {
     echo '</div>';
 
     switch ($section) {
-
       case 'clientes':
         TTB_Clients_UI::render();
         break;
@@ -73,7 +66,7 @@ class TTB_Admin_UI {
         if ($tab === 'answers')       self::render_answers();
         elseif ($tab === 'forms')     self::render_forms('es');
         elseif ($tab === 'forms_en')  self::render_forms('en');
-        else                          self::render_answers(); // default
+        else                          self::render_answers();
         break;
 
       case 'revisiones-dis':
@@ -92,7 +85,6 @@ class TTB_Admin_UI {
     echo '</div>';
   }
 
-  /* ── Pestaña principal ── */
   private static function section_link($key, $label, $active) {
     $icon_map = [
       'clientes'       => 'clients',
@@ -109,7 +101,6 @@ class TTB_Admin_UI {
     echo '<a class="' . $cls . '" href="' . $url . '">' . $icon . esc_html($label) . '</a>';
   }
 
-  /* ── Sub-pestaña ── */
   private static function tab_link($key, $label, $active, $section = 'briefings') {
     $icon_map = [
       'answers'   => 'answers',
@@ -122,7 +113,10 @@ class TTB_Admin_UI {
     echo '<a class="' . $cls . '" href="' . $url . '">' . $icon . esc_html($label) . '</a>';
   }
 
-  /* ── Guardar formularios JSON ── */
+  /* ════════════════════════════════
+     GUARDAR FORMULARIOS JSON
+     — añadido ttb_form_reservas —
+  ════════════════════════════════ */
   private static function handle_forms_save($tab) {
     if (!isset($_POST['ttb_admin_save_forms'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_admin_forms')) return;
@@ -130,10 +124,11 @@ class TTB_Admin_UI {
     $lang = sanitize_text_field($_POST['ttb_form_lang'] ?? 'es');
     $sfx  = ($lang === 'en') ? '_en' : '';
 
-    update_option('ttb_form_design' . $sfx, wp_unslash($_POST['ttb_form_design'] ?? ''));
-    update_option('ttb_form_social' . $sfx, wp_unslash($_POST['ttb_form_social'] ?? ''));
-    update_option('ttb_form_seo'    . $sfx, wp_unslash($_POST['ttb_form_seo']    ?? ''));
-    update_option('ttb_form_web'    . $sfx, wp_unslash($_POST['ttb_form_web']    ?? ''));
+    update_option('ttb_form_design'   . $sfx, wp_unslash($_POST['ttb_form_design']   ?? ''));
+    update_option('ttb_form_social'   . $sfx, wp_unslash($_POST['ttb_form_social']   ?? ''));
+    update_option('ttb_form_seo'      . $sfx, wp_unslash($_POST['ttb_form_seo']      ?? ''));
+    update_option('ttb_form_web'      . $sfx, wp_unslash($_POST['ttb_form_web']      ?? ''));
+    update_option('ttb_form_reservas' . $sfx, wp_unslash($_POST['ttb_form_reservas'] ?? ''));
 
     $dest_tab = ($lang === 'en') ? 'forms_en' : 'forms';
     self::flash_and_redirect('success', 'Formularios guardados.',
@@ -142,14 +137,16 @@ class TTB_Admin_UI {
 
   /* ════════════════════════════════
      RENDER: FORMULARIOS (ES / EN)
+     — añadido bloque Reservas —
   ════════════════════════════════ */
   private static function render_forms($lang = 'es') {
     $sfx = ($lang === 'en') ? '_en' : '';
 
-    $design = (string)get_option('ttb_form_design' . $sfx, '');
-    $social = (string)get_option('ttb_form_social' . $sfx, '');
-    $seo    = (string)get_option('ttb_form_seo'    . $sfx, '');
-    $web    = (string)get_option('ttb_form_web'    . $sfx, '');
+    $design   = (string)get_option('ttb_form_design'   . $sfx, '');
+    $social   = (string)get_option('ttb_form_social'   . $sfx, '');
+    $seo      = (string)get_option('ttb_form_seo'      . $sfx, '');
+    $web      = (string)get_option('ttb_form_web'      . $sfx, '');
+    $reservas = (string)get_option('ttb_form_reservas' . $sfx, '');
 
     $lang_label = $lang === 'en' ? 'English' : 'Español';
 
@@ -159,12 +156,21 @@ class TTB_Admin_UI {
     echo '<form method="post" action="' . esc_url(home_url('/briefing?section=briefings&tab=' . ($lang === 'en' ? 'forms_en' : 'forms'))) . '" class="ttb-card">';
     wp_nonce_field('ttb_admin_forms');
     echo '<input type="hidden" name="ttb_form_lang" value="' . esc_attr($lang) . '">';
+
+    // Grid 2 columnas para los 4 formularios originales
     echo '<div class="ttb-grid2">';
-    self::json_box('Design',  'ttb_form_design', $design);
-    self::json_box('Social',  'ttb_form_social', $social);
-    self::json_box('SEO',     'ttb_form_seo',    $seo);
-    self::json_box('Web',     'ttb_form_web',    $web);
+    self::json_box('Design',  'ttb_form_design',  $design);
+    self::json_box('Social',  'ttb_form_social',  $social);
+    self::json_box('SEO',     'ttb_form_seo',     $seo);
+    self::json_box('Web',     'ttb_form_web',     $web);
     echo '</div>';
+
+    // Reservas en su propia fila a ancho completo
+    echo '<div style="margin-top:16px">';
+    echo '<h4 style="margin:0 0 8px;font-size:15px;color:var(--ttb-text)">🍽️ Gestor de Reservas Restaurante</h4>';
+    echo '<textarea name="ttb_form_reservas" class="ttb-textarea" style="min-height:180px">' . esc_textarea($reservas) . '</textarea>';
+    echo '</div>';
+
     echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_admin_save_forms" value="1">Guardar formularios</button></div>';
     echo '</form>';
   }
