@@ -2,16 +2,6 @@
 if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_DB')) return;
 
-/**
- * TTB_Social_DB
- * Gestión de tablas para el módulo Redes Sociales
- *
- * Tablas:
- *   ttb_social_clients  → clientes con magic token para subir contenido
- *   ttb_social_content  → archivos subidos por el cliente
- *   ttb_social_posts    → publicaciones programadas (el calendario)
- *   ttb_social_audit    → log de auditoría
- */
 class TTB_Social_DB {
 
   public static function clients_table() {
@@ -44,9 +34,9 @@ class TTB_Social_DB {
     $posts   = self::posts_table();
     $audit   = self::audit_table();
 
-    // Clientes de redes sociales (token único para magic link)
     $sql1 = "CREATE TABLE $clients (
       id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      ttb_client_id BIGINT UNSIGNED NULL,
       name          VARCHAR(190) NOT NULL,
       emails        LONGTEXT NOT NULL,
       token         VARCHAR(64) NOT NULL,
@@ -57,10 +47,10 @@ class TTB_Social_DB {
       updated_at    DATETIME NOT NULL,
       PRIMARY KEY (id),
       UNIQUE KEY token_unique (token),
-      KEY status_idx (status)
+      KEY status_idx (status),
+      KEY ttb_client_idx (ttb_client_id)
     ) $charset;";
 
-    // Contenido subido por los clientes (fotos, vídeos, textos)
     $sql2 = "CREATE TABLE $content (
       id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       client_id     BIGINT UNSIGNED NOT NULL,
@@ -75,7 +65,6 @@ class TTB_Social_DB {
       KEY used_idx (used)
     ) $charset;";
 
-    // Publicaciones programadas (calendario)
     $sql3 = "CREATE TABLE $posts (
       id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       client_id       BIGINT UNSIGNED NOT NULL,
@@ -98,7 +87,6 @@ class TTB_Social_DB {
       KEY status_idx (status)
     ) $charset;";
 
-    // Auditoría
     $sql4 = "CREATE TABLE $audit (
       id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       client_id   BIGINT UNSIGNED NULL,
@@ -121,6 +109,26 @@ class TTB_Social_DB {
     dbDelta($sql2);
     dbDelta($sql3);
     dbDelta($sql4);
+
+    // Migración: añadir ttb_client_id si no existe (instancias ya activadas)
+    self::migrate_add_ttb_client_id();
+  }
+
+  /**
+   * Añade la columna ttb_client_id a ttb_social_clients si no existe.
+   */
+  private static function migrate_add_ttb_client_id() {
+    global $wpdb;
+    $table = self::clients_table();
+
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) return;
+
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'ttb_client_id'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `ttb_client_id` BIGINT UNSIGNED NULL AFTER `id`");
+      $wpdb->query("ALTER TABLE `$table` ADD KEY `ttb_client_idx` (`ttb_client_id`)");
+    }
   }
 
   public static function now() {
@@ -140,12 +148,10 @@ class TTB_Social_DB {
     ));
   }
 
-  /** URL pública para que el cliente suba contenido y vea sus posts */
   public static function client_url($token) {
     return home_url('/briefing?social=' . urlencode($token));
   }
 
-  /** Redes disponibles */
   public static function networks() {
     return [
       'instagram' => ['Instagram',  '📸'],
@@ -157,7 +163,6 @@ class TTB_Social_DB {
     ];
   }
 
-  /** Tipos de post */
   public static function post_types() {
     return [
       'image'    => ['Imagen',    '🖼️'],
@@ -169,7 +174,6 @@ class TTB_Social_DB {
     ];
   }
 
-  /** Estados de un post */
   public static function post_statuses() {
     return [
       'draft'            => ['Borrador',           '#f3f4f6', '#e5e7eb', '#374151', 'ttb-status--draft'],
@@ -181,9 +185,6 @@ class TTB_Social_DB {
     ];
   }
 
-  /**
-   * Registra un evento de auditoría.
-   */
   public static function log($client_id, $post_id, $event, $actor = 'system', $detail = []) {
     global $wpdb;
     $table = self::audit_table();

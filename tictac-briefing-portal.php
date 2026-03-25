@@ -2,13 +2,13 @@
 /**
  * Plugin Name: TicTac Briefing Portal (Standalone)
  * Description: Portal /briefing con login independiente + admin frontend + clientes + formularios por servicio + Google Drive + Revisiones Diseños + Revisiones Prog. Web + Redes Sociales.
- * Version: 1.5.0
+ * Version: 1.6.0
  * Author: TicTac Comunicación
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TTB_VERSION', '1.5.0');
+define('TTB_VERSION', '1.6.0');
 define('TTB_PATH', plugin_dir_path(__FILE__));
 define('TTB_URL',  plugin_dir_url(__FILE__));
 
@@ -23,6 +23,7 @@ require_once TTB_PATH . 'includes/class-forms.php';
 require_once TTB_PATH . 'includes/class-mailer.php';
 require_once TTB_PATH . 'includes/class-drive.php';
 require_once TTB_PATH . 'includes/ttb-icons.php';
+require_once TTB_PATH . 'includes/class-clients-ui.php';   // ← NUEVO: gestión central de clientes
 require_once TTB_PATH . 'includes/class-admin-ui.php';
 require_once TTB_PATH . 'includes/class-client-ui.php';
 
@@ -57,23 +58,18 @@ add_action('plugins_loaded', function () {
   $auth->init();
   (new TTB_Forms())->init();
 
-  // ── Migraciones de BD — garantizan que las tablas existen aunque
-  // el plugin se haya actualizado sin desactivar/reactivar
-  TTB_WebRev_DB::run_migrations();    // <-- AÑADIDO: Revisiones Diseños
-  TTB_WebProg_DB::run_migrations();   // ya existía
-  // Social no tiene run_migrations pero su create_tables es idempotente:
-  TTB_Social_DB::create_tables();     // <-- AÑADIDO: Redes Sociales
+  // ── Migraciones de BD ──────────────────────────────────────
+  TTB_DB::run_migrations();          // ← NUEVO: añade columna emails a ttb_clients
+  TTB_WebRev_DB::run_migrations();
+  TTB_WebProg_DB::run_migrations();
+  TTB_Social_DB::create_tables();    // idempotente, añade ttb_client_id si no existe
 
-  // Cron de recordatorios de revisiones diseños
+  // Cron
   TTB_WebRev_Cron::register();
-
-  // Cron de recordatorios de revisiones prog. web
   TTB_WebProg_Cron::register();
-
-  // Cron de recordatorios de redes sociales
   TTB_Social_Cron::register();
 
-  // ✅ Si cierras sesión de WordPress (wp-admin), también borra sesión del portal
+  // ✅ Logout de WordPress → también borra sesión del portal
   add_action('wp_logout', function () use ($auth) {
     $auth->logout();
   }, 1);

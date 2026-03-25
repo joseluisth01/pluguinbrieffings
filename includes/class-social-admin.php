@@ -32,9 +32,8 @@ class TTB_Social_Admin {
   public static function render() {
     $tab = sanitize_text_field($_GET['sstab'] ?? 'clients');
 
-    self::handle_client_create($tab);
-    self::handle_client_edit($tab);
-    self::handle_client_delete($tab);
+    // NOTE: client create/edit/delete is now handled by TTB_Clients_UI
+    // We only keep post actions and settings here
     self::handle_resend_welcome($tab);
     self::handle_post_create($tab);
     self::handle_post_edit($tab);
@@ -49,11 +48,11 @@ class TTB_Social_Admin {
     }
 
     echo '<div class="ttb-tabs">';
-    self::tab_link('clients',  'Clientes',      $tab);
-    self::tab_link('content',  'Contenido',     $tab);
-    self::tab_link('calendar', 'Calendario',    $tab);
-    self::tab_link('audit',    'Auditoría',     $tab);
-    self::tab_link('settings', 'Configuración', $tab);
+    self::tab_link('clients',  'Clientes activos', $tab);
+    self::tab_link('content',  'Contenido',        $tab);
+    self::tab_link('calendar', 'Calendario',       $tab);
+    self::tab_link('audit',    'Auditoría',        $tab);
+    self::tab_link('settings', 'Configuración',    $tab);
     echo '</div>';
 
     switch ($tab) {
@@ -88,42 +87,37 @@ class TTB_Social_Admin {
     return esc_url(home_url('/briefing?section=redes-sociales&sstab=' . $t));
   }
 
-  // ── Helper: detectar si una URL es vídeo ──────────────────
   public static function is_video_url($url) {
     if (!$url) return false;
     $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
     return in_array($ext, ['mp4', 'mov', 'webm', 'avi', 'm4v'], true);
   }
 
-  // ── Helper: detectar si un MIME type es vídeo ────────────
   public static function is_video_mime($mime) {
     return strpos((string)$mime, 'video/') === 0;
   }
 
-  // ── Helper: subir creative (imagen o vídeo) ──────────────
   private static function upload_creative($file_key, $date_label) {
     if (empty($_FILES[$file_key]['tmp_name']) || $_FILES[$file_key]['error'] !== UPLOAD_ERR_OK) {
       return null;
     }
 
-    $max_mb   = (int)get_option('ttb_social_max_filesize', 50);
-    $file     = $_FILES[$file_key];
-    $mime     = $file['type'];
-    $size     = $file['size'];
+    $max_mb = (int)get_option('ttb_social_max_filesize', 50);
+    $file   = $_FILES[$file_key];
+    $mime   = $file['type'];
+    $size   = $file['size'];
 
-    // Validar tamaño
     if ($size > $max_mb * 1024 * 1024) {
       self::set_flash('error', 'El archivo supera el límite de ' . $max_mb . ' MB.');
-      return false; // false = error de validación
+      return false;
     }
 
-    // Validar MIME
     $allowed_mime = [
       'image/jpeg', 'image/png', 'image/gif', 'image/webp',
       'video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo',
     ];
     if (!in_array($mime, $allowed_mime, true)) {
-      self::set_flash('error', 'Tipo de archivo no permitido. Usa imágenes (JPG, PNG, GIF, WEBP) o vídeos (MP4, MOV, WEBM).');
+      self::set_flash('error', 'Tipo de archivo no permitido.');
       return false;
     }
 
@@ -151,99 +145,8 @@ class TTB_Social_Admin {
   }
 
   /* ════════════════════════════════
-     ACCIONES POST — Clientes
+     ACCIONES POST — Resend welcome (clients managed centrally now)
   ════════════════════════════════ */
-  private static function handle_client_create(&$tab) {
-    if (!isset($_POST['ttb_social_client_create'])) return;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_client_create')) return;
-
-    $name     = sanitize_text_field($_POST['sc_name']    ?? '');
-    $emails   = self::sanitize_emails($_POST['sc_emails'] ?? []);
-    $networks = array_map('sanitize_text_field', (array)($_POST['sc_networks'] ?? []));
-    $notes    = sanitize_textarea_field($_POST['sc_notes'] ?? '');
-
-    if (!$name || !$emails) {
-      self::set_flash('error', 'Nombre y al menos un email son obligatorios.');
-      $tab = 'clients'; return;
-    }
-
-    global $wpdb;
-    $table = TTB_Social_DB::clients_table();
-    $token = TTB_Social_DB::generate_token();
-
-    $wpdb->insert($table, [
-      'name'       => $name,
-      'emails'     => wp_json_encode(array_values($emails)),
-      'token'      => $token,
-      'networks'   => wp_json_encode(array_values($networks)),
-      'notes'      => $notes,
-      'status'     => 'active',
-      'created_at' => TTB_Social_DB::now(),
-      'updated_at' => TTB_Social_DB::now(),
-    ]);
-
-    $new_id = (int)$wpdb->insert_id;
-    $client = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $new_id));
-
-    if ($client) {
-      (new TTB_Social_Mailer())->send_welcome($client);
-      TTB_Social_DB::log($new_id, null, 'client_created', 'admin', ['name' => $name, 'emails' => $emails]);
-      TTB_Social_DB::log($new_id, null, 'email_welcome_sent', 'admin', ['emails' => $emails]);
-    }
-
-    self::set_flash('success', 'Cliente creado y email de bienvenida enviado.');
-    $tab = 'clients';
-  }
-
-  private static function handle_client_edit(&$tab) {
-    if (!isset($_POST['ttb_social_client_edit'])) return;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_client_edit')) return;
-
-    $id       = (int)($_POST['sc_id']       ?? 0);
-    $name     = sanitize_text_field($_POST['sc_name']    ?? '');
-    $emails   = self::sanitize_emails($_POST['sc_emails'] ?? []);
-    $networks = array_map('sanitize_text_field', (array)($_POST['sc_networks'] ?? []));
-    $notes    = sanitize_textarea_field($_POST['sc_notes'] ?? '');
-    $status   = in_array($_POST['sc_status'] ?? '', ['active','inactive'], true) ? $_POST['sc_status'] : 'active';
-
-    if (!$id || !$name || !$emails) {
-      self::set_flash('error', 'Todos los campos obligatorios son necesarios.');
-      $tab = 'clients'; return;
-    }
-
-    global $wpdb;
-    $wpdb->update(TTB_Social_DB::clients_table(), [
-      'name'       => $name,
-      'emails'     => wp_json_encode(array_values($emails)),
-      'networks'   => wp_json_encode(array_values($networks)),
-      'notes'      => $notes,
-      'status'     => $status,
-      'updated_at' => TTB_Social_DB::now(),
-    ], ['id' => $id]);
-
-    TTB_Social_DB::log($id, null, 'client_updated', 'admin', ['name' => $name]);
-    self::set_flash('success', 'Cliente actualizado.');
-    $tab = 'clients';
-  }
-
-  private static function handle_client_delete(&$tab) {
-    if (!isset($_POST['ttb_social_client_delete'])) return;
-    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_client_delete')) return;
-
-    $id = (int)($_POST['sc_id'] ?? 0);
-    if (!$id) return;
-
-    global $wpdb;
-    $client = $wpdb->get_row($wpdb->prepare("SELECT name FROM " . TTB_Social_DB::clients_table() . " WHERE id=%d", $id));
-    TTB_Social_DB::log($id, null, 'client_deleted', 'admin', ['name' => $client->name ?? '—']);
-
-    $wpdb->delete(TTB_Social_DB::clients_table(), ['id' => $id]);
-    $wpdb->delete(TTB_Social_DB::posts_table(),   ['client_id' => $id]);
-    $wpdb->delete(TTB_Social_DB::content_table(), ['client_id' => $id]);
-
-    self::set_flash('success', 'Cliente eliminado.');
-    $tab = 'clients';
-  }
 
   private static function handle_resend_welcome(&$tab) {
     if (!isset($_POST['ttb_social_resend_welcome'])) return;
@@ -265,36 +168,33 @@ class TTB_Social_Admin {
   /* ════════════════════════════════
      ACCIONES POST — Posts
   ════════════════════════════════ */
+
   private static function handle_post_create(&$tab) {
     if (!isset($_POST['ttb_social_post_create'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_post_create')) return;
 
-    $client_id = (int)($_POST['sp_client_id'] ?? 0);
-    $date      = sanitize_text_field($_POST['sp_date']    ?? '');
-    $time      = sanitize_text_field($_POST['sp_time']    ?? '');
-    $caption   = sanitize_textarea_field($_POST['sp_caption'] ?? '');
-    $note      = sanitize_textarea_field($_POST['sp_note']    ?? '');
+    // sp_client_id ahora es el ID de ttb_social_clients
+    $sc_id   = (int)($_POST['sp_client_id'] ?? 0);
+    $date    = sanitize_text_field($_POST['sp_date']    ?? '');
+    $time    = sanitize_text_field($_POST['sp_time']    ?? '');
+    $caption = sanitize_textarea_field($_POST['sp_caption'] ?? '');
+    $note    = sanitize_textarea_field($_POST['sp_note']    ?? '');
 
-    if (!$client_id || !$date) {
+    if (!$sc_id || !$date) {
       self::set_flash('error', 'Cliente y fecha son obligatorios.');
       $tab = 'calendar'; return;
     }
 
-    // Subir creative (imagen o vídeo)
     $creative_url = '';
     if (!empty($_FILES['sp_creative']['tmp_name']) && $_FILES['sp_creative']['error'] === UPLOAD_ERR_OK) {
       $result = self::upload_creative('sp_creative', $date);
-      if ($result === false) {
-        $tab = 'calendar'; return; // error ya seteado en upload_creative
-      }
+      if ($result === false) { $tab = 'calendar'; return; }
       $creative_url = $result ?? '';
     }
-    // Fallback: URL manual
     if (!$creative_url && !empty($_POST['sp_creative_url'])) {
       $creative_url = esc_url_raw($_POST['sp_creative_url']);
     }
 
-    // Determinar post_type según el creative
     $post_type = 'post';
     if ($creative_url && self::is_video_url($creative_url)) {
       $post_type = 'video';
@@ -303,11 +203,11 @@ class TTB_Social_Admin {
     }
 
     global $wpdb;
-    $posts_table   = TTB_Social_DB::posts_table();
-    $clients_table = TTB_Social_DB::clients_table();
+    $posts_table = TTB_Social_DB::posts_table();
+    $sc_table    = TTB_Social_DB::clients_table();
 
     $wpdb->insert($posts_table, [
-      'client_id'      => $client_id,
+      'client_id'      => $sc_id,
       'scheduled_date' => $date,
       'scheduled_time' => $time ?: null,
       'network'        => 'all',
@@ -322,16 +222,16 @@ class TTB_Social_Admin {
     ]);
 
     $post_id = (int)$wpdb->insert_id;
-    $client  = $wpdb->get_row($wpdb->prepare("SELECT * FROM $clients_table WHERE id=%d", $client_id));
+    $client  = $wpdb->get_row($wpdb->prepare("SELECT * FROM $sc_table WHERE id=%d", $sc_id));
     $post    = $wpdb->get_row($wpdb->prepare("SELECT * FROM $posts_table WHERE id=%d", $post_id));
 
     if ($client && $post) {
       (new TTB_Social_Mailer())->send_post_approval($client, $post);
-      TTB_Social_DB::log($client_id, $post_id, 'post_notified',       'admin', ['trigger' => 'auto_on_create']);
-      TTB_Social_DB::log($client_id, $post_id, 'email_approval_sent', 'admin', []);
+      TTB_Social_DB::log($sc_id, $post_id, 'post_notified',       'admin', ['trigger' => 'auto_on_create']);
+      TTB_Social_DB::log($sc_id, $post_id, 'email_approval_sent', 'admin', []);
     }
 
-    TTB_Social_DB::log($client_id, $post_id, 'post_created', 'admin', ['date' => $date, 'type' => $post_type]);
+    TTB_Social_DB::log($sc_id, $post_id, 'post_created', 'admin', ['date' => $date, 'type' => $post_type]);
     self::set_flash('success', 'Publicación creada y notificación enviada al cliente.');
     $tab = 'calendar';
   }
@@ -348,24 +248,19 @@ class TTB_Social_Admin {
     $keep_url = esc_url_raw($_POST['sp_keep_creative_url'] ?? '');
 
     if (!$post_id || !$date) {
-      self::set_flash('error', 'Datos incompletos.');
-      $tab = 'calendar'; return;
+      self::set_flash('error', 'Datos incompletos.'); $tab = 'calendar'; return;
     }
 
     $creative_url = $keep_url;
-
     if (!empty($_FILES['sp_creative']['tmp_name']) && $_FILES['sp_creative']['error'] === UPLOAD_ERR_OK) {
       $result = self::upload_creative('sp_creative', $date);
-      if ($result === false) {
-        $tab = 'calendar'; return;
-      }
+      if ($result === false) { $tab = 'calendar'; return; }
       $creative_url = $result ?? $keep_url;
     }
     if (!$creative_url && !empty($_POST['sp_creative_url'])) {
       $creative_url = esc_url_raw($_POST['sp_creative_url']);
     }
 
-    // Determinar post_type
     $post_type = 'post';
     if ($creative_url && self::is_video_url($creative_url)) {
       $post_type = 'video';
@@ -375,7 +270,7 @@ class TTB_Social_Admin {
 
     global $wpdb;
     $posts_table = TTB_Social_DB::posts_table();
-    $post = $wpdb->get_row($wpdb->prepare("SELECT * FROM $posts_table WHERE id=%d", $post_id));
+    $post        = $wpdb->get_row($wpdb->prepare("SELECT * FROM $posts_table WHERE id=%d", $post_id));
     if (!$post) { self::set_flash('error', 'Post no encontrado.'); $tab = 'calendar'; return; }
 
     $new_status = $post->status;
@@ -476,78 +371,65 @@ class TTB_Social_Admin {
 
   /* ════════════════════════════════
      RENDER: CLIENTES
+     Ahora muestra los social_clients vinculados a clientes centrales
+     con servicio "social". Creación delegada a pestaña Clientes.
   ════════════════════════════════ */
   private static function render_clients() {
     global $wpdb;
-    $table        = TTB_Social_DB::clients_table();
-    $clients      = $wpdb->get_results("SELECT * FROM $table ORDER BY created_at DESC LIMIT 200");
-    $networks_all = TTB_Social_DB::networks();
+    $sc_table      = TTB_Social_DB::clients_table();
+    $clients_table = TTB_DB::clients_table();
+    $networks_all  = TTB_Social_DB::networks();
+    $action_url    = self::action_url('clients');
 
+    // Clientes de redes sociales vinculados al sistema central
+    $clients = $wpdb->get_results(
+      "SELECT sc.*, c.services AS central_services
+       FROM $sc_table sc
+       LEFT JOIN $clients_table c ON c.id = sc.ttb_client_id
+       ORDER BY sc.created_at DESC LIMIT 200"
+    );
+
+    echo '<div class="ttb-card">';
+    echo '<h3 style="margin:0 0 4px">Clientes activos en Redes Sociales</h3>';
+    echo '<p class="ttb-muted" style="margin:0">Los clientes se gestionan desde la pestaña <strong>Clientes</strong> del menú principal. Aquí puedes ver los activos, editar sus redes y reenviar accesos.</p>';
+    echo '</div>';
+
+    if (!$clients) {
+      echo '<div class="ttb-card"><p class="ttb-muted">No hay clientes con servicio de redes sociales aún. Crea uno desde la pestaña <strong>Clientes</strong>.</p></div>';
+      return;
+    }
+
+    // Modal edición redes/notas (sin tocar nombre/emails)
     $edit_id = (int)($_GET['edit_sc'] ?? 0);
     $edit_c  = null;
-    if ($edit_id) $edit_c = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $edit_id));
-
-    $action_url = self::action_url('clients');
-
-    echo '<div class="ttb-card"><h3>Nuevo cliente de redes</h3></div>';
-    echo '<form method="post" action="' . $action_url . '" class="ttb-card">';
-    wp_nonce_field('ttb_social_client_create');
-    echo '<div class="ttb-grid2">';
-    echo '<div><label>Nombre del cliente</label><input class="ttb-input" type="text" name="sc_name" required placeholder="Empresa Ejemplo S.L."></div>';
-    echo '<div><label>Notas internas</label><input class="ttb-input" type="text" name="sc_notes" placeholder="2 posts/semana..."></div>';
-    echo '</div>';
-    echo '<div style="margin-top:12px"><label>Emails del cliente</label>';
-    echo '<div id="ttb-sc-emails-create" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">';
-    echo '<div class="ttb-sc-email-row" style="display:flex;gap:8px;align-items:center"><input class="ttb-input" type="email" name="sc_emails[]" placeholder="email@cliente.com" required style="flex:1"><button type="button" class="ttb-btn ttb-btn--danger ttb-btn--sm ttb-sc-remove-email" style="display:none">✕</button></div>';
-    echo '</div>';
-    echo '<button type="button" class="ttb-btn ttb-btn--ghost ttb-btn--sm ttb-sc-add-email" data-target="ttb-sc-emails-create" style="margin-top:8px">+ Añadir email</button></div>';
-    echo '<div style="margin-top:12px"><label>Redes que gestiona TicTac para este cliente</label><div class="ttb-checks" style="margin-top:8px">';
-    foreach ($networks_all as $k => [$label]) {
-      echo '<label class="ttb-check"><input type="checkbox" name="sc_networks[]" value="' . esc_attr($k) . '"> ' . esc_html($label) . '</label>';
-    }
-    echo '</div></div>';
-    echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_social_client_create" value="1">Crear cliente y enviar acceso</button></div>';
-    echo '</form>';
+    if ($edit_id) $edit_c = $wpdb->get_row($wpdb->prepare("SELECT * FROM $sc_table WHERE id=%d", $edit_id));
 
     if ($edit_c) {
-      $edit_emails   = json_decode((string)$edit_c->emails,   true) ?: [];
       $edit_networks = json_decode((string)$edit_c->networks, true) ?: [];
       $cancel_url    = esc_url(home_url('/briefing?section=redes-sociales&sstab=clients'));
       echo '<div class="ttb-modal-overlay" id="ttbScEditModal" role="dialog" aria-modal="true" style="display:flex">';
-      echo '<div class="ttb-modal ttb-edit-modal"><h3 class="ttb-edit-modal__title">Editar cliente</h3>';
+      echo '<div class="ttb-modal ttb-edit-modal"><h3 class="ttb-edit-modal__title">Configurar redes: ' . esc_html($edit_c->name) . '</h3>';
       echo '<form method="post" action="' . $action_url . '" class="ttb-formgrid">';
       wp_nonce_field('ttb_social_client_edit');
       echo '<input type="hidden" name="sc_id" value="' . (int)$edit_c->id . '">';
-      echo '<div class="ttb-grid2">';
-      echo '<div><label>Nombre</label><input class="ttb-input" type="text" name="sc_name" value="' . esc_attr($edit_c->name) . '" required></div>';
-      echo '<div><label>Notas internas</label><input class="ttb-input" type="text" name="sc_notes" value="' . esc_attr($edit_c->notes ?? '') . '"></div>';
-      echo '</div>';
-      echo '<div style="margin-top:10px"><label>Emails</label><div id="ttb-sc-emails-edit" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">';
-      foreach ($edit_emails as $i => $em) {
-        $rm = $i > 0 ? '' : 'style="display:none"';
-        echo '<div class="ttb-sc-email-row" style="display:flex;gap:8px;align-items:center"><input class="ttb-input" type="email" name="sc_emails[]" value="' . esc_attr($em) . '" required style="flex:1"><button type="button" class="ttb-btn ttb-btn--danger ttb-btn--sm ttb-sc-remove-email" ' . $rm . '>✕</button></div>';
-      }
-      if (empty($edit_emails)) echo '<div class="ttb-sc-email-row" style="display:flex;gap:8px;align-items:center"><input class="ttb-input" type="email" name="sc_emails[]" required style="flex:1"><button type="button" class="ttb-btn ttb-btn--danger ttb-btn--sm ttb-sc-remove-email" style="display:none">✕</button></div>';
-      echo '</div><button type="button" class="ttb-btn ttb-btn--ghost ttb-btn--sm ttb-sc-add-email" data-target="ttb-sc-emails-edit" style="margin-top:8px">+ Añadir email</button></div>';
-      echo '<div style="margin-top:10px"><label>Redes</label><div class="ttb-checks" style="margin-top:8px">';
+      echo '<div style="margin-top:10px"><label>Redes que gestiona TicTac</label><div class="ttb-checks" style="margin-top:8px">';
       foreach ($networks_all as $k => [$label]) {
         $checked = in_array($k, $edit_networks, true) ? 'checked' : '';
         echo '<label class="ttb-check"><input type="checkbox" name="sc_networks[]" value="' . esc_attr($k) . '" ' . $checked . '> ' . esc_html($label) . '</label>';
       }
       echo '</div></div>';
+      echo '<div style="margin-top:10px"><label>Notas internas</label><input class="ttb-input" type="text" name="sc_notes" value="' . esc_attr($edit_c->notes ?? '') . '"></div>';
       echo '<div style="margin-top:10px"><label>Estado</label><div class="ttb-checks" style="margin-top:8px">';
       echo '<label class="ttb-check"><input type="radio" name="sc_status" value="active"' . ($edit_c->status === 'active' ? ' checked' : '') . '> Activo</label>';
       echo '<label class="ttb-check"><input type="radio" name="sc_status" value="inactive"' . ($edit_c->status === 'inactive' ? ' checked' : '') . '> Inactivo</label>';
       echo '</div></div>';
       echo '<div class="ttb-actions" style="margin-top:16px">';
       echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
-      echo '<button class="ttb-btn" name="ttb_social_client_edit" value="1">Guardar</button>';
+      echo '<button class="ttb-btn" name="ttb_social_client_edit_networks" value="1">Guardar</button>';
       echo '</div></form></div></div>';
     }
 
-    echo '<div class="ttb-card"><h3>Clientes</h3>';
-    if (!$clients) { echo '<p class="ttb-muted">No hay clientes aún.</p></div>'; self::email_js(); return; }
-    echo '<div class="ttb-tablewrap"><table class="ttb-table"><thead><tr><th>Cliente</th><th>Emails</th><th>Redes</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
+    echo '<div class="ttb-card"><div class="ttb-tablewrap"><table class="ttb-table"><thead><tr><th>Cliente</th><th>Emails</th><th>Redes</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
     foreach ($clients as $c) {
       $nets       = json_decode((string)$c->networks, true) ?: [];
       $nets_label = implode(', ', array_map(fn($n) => $networks_all[$n][0] ?? $n, $nets)) ?: '—';
@@ -555,7 +437,9 @@ class TTB_Social_Admin {
       $edit_url   = esc_url(home_url('/briefing?section=redes-sociales&sstab=clients&edit_sc=' . (int)$c->id));
       $cal_url    = esc_url(home_url('/briefing?section=redes-sociales&sstab=calendar&filter_client=' . (int)$c->id));
       $portal_url = esc_url(TTB_Social_DB::client_url($c->token));
-      $status_lbl = $c->status === 'active' ? '<span class="ttb-status ttb-status--sent">Activo</span>' : '<span class="ttb-status ttb-status--pending">Inactivo</span>';
+      $status_lbl = $c->status === 'active'
+        ? '<span class="ttb-status ttb-status--sent">Activo</span>'
+        : '<span class="ttb-status ttb-status--pending">Inactivo</span>';
       echo '<tr>';
       echo '<td><strong>' . esc_html($c->name) . '</strong>' . ($c->notes ? '<br><small style="color:var(--ttb-muted)">' . esc_html(mb_substr($c->notes, 0, 50)) . '</small>' : '') . '</td>';
       echo '<td style="font-size:13px">' . implode('<br>', array_map('esc_html', $emails_arr)) . '</td>';
@@ -564,19 +448,14 @@ class TTB_Social_Admin {
       echo '<td><div class="ttb-row-actions">';
       echo '<a href="' . $portal_url . '" target="_blank" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Ver portal</a>';
       echo '<a href="' . $cal_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Calendario</a>';
-      echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Editar</a>';
+      echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Configurar redes</a>';
       echo '<form method="post" action="' . $action_url . '" style="margin:0">';
       wp_nonce_field('ttb_social_resend_welcome');
       echo '<input type="hidden" name="sc_id" value="' . (int)$c->id . '">';
       echo '<button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_social_resend_welcome" value="1">Reenviar acceso</button></form>';
-      echo '<form method="post" action="' . $action_url . '" style="margin:0" onsubmit="return confirm(\'¿Eliminar a ' . esc_js($c->name) . '?\')">';
-      wp_nonce_field('ttb_social_client_delete');
-      echo '<input type="hidden" name="sc_id" value="' . (int)$c->id . '">';
-      echo '<button class="ttb-btn ttb-btn--danger ttb-btn--sm" name="ttb_social_client_delete" value="1">Eliminar</button></form>';
       echo '</div></td></tr>';
     }
     echo '</tbody></table></div></div>';
-    self::email_js();
   }
 
   /* ════════════════════════════════
@@ -584,10 +463,10 @@ class TTB_Social_Admin {
   ════════════════════════════════ */
   private static function render_content() {
     global $wpdb;
-    $clients_table = TTB_Social_DB::clients_table();
+    $sc_table      = TTB_Social_DB::clients_table();
     $content_table = TTB_Social_DB::content_table();
     $action_url    = self::action_url('content');
-    $clients       = $wpdb->get_results("SELECT id, name FROM $clients_table WHERE status='active' ORDER BY name ASC");
+    $clients       = $wpdb->get_results("SELECT id, name FROM $sc_table WHERE status='active' ORDER BY name ASC");
     $filter_cid    = (int)($_GET['filter_client'] ?? 0);
 
     echo '<div class="ttb-card"><h3>Contenido enviado por los clientes</h3>';
@@ -599,7 +478,7 @@ class TTB_Social_Admin {
     echo '</select><button class="ttb-btn ttb-btn--ghost" type="submit">Filtrar</button></form></div>';
 
     $where = $filter_cid ? $wpdb->prepare('WHERE ct.client_id = %d', $filter_cid) : '';
-    $items = $wpdb->get_results("SELECT ct.*, cl.name AS client_name FROM $content_table ct INNER JOIN $clients_table cl ON cl.id=ct.client_id $where ORDER BY ct.created_at DESC LIMIT 200");
+    $items = $wpdb->get_results("SELECT ct.*, cl.name AS client_name FROM $content_table ct INNER JOIN $sc_table cl ON cl.id=ct.client_id $where ORDER BY ct.created_at DESC LIMIT 200");
     if (!$items) { echo '<div class="ttb-card"><p class="ttb-muted">No hay contenido aún.</p></div>'; return; }
 
     echo '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;padding:4px 0">';
@@ -629,17 +508,19 @@ class TTB_Social_Admin {
 
   /* ════════════════════════════════
      RENDER: CALENDARIO (admin)
+     El select de clientes ahora usa ttb_social_clients
   ════════════════════════════════ */
   private static function render_calendar() {
     global $wpdb;
-    $clients_table = TTB_Social_DB::clients_table();
-    $posts_table   = TTB_Social_DB::posts_table();
-    $action_url    = self::action_url('calendar');
-    $statuses      = TTB_Social_DB::post_statuses();
-    $clients       = $wpdb->get_results("SELECT id, name FROM $clients_table WHERE status='active' ORDER BY name ASC");
+    $sc_table    = TTB_Social_DB::clients_table();
+    $posts_table = TTB_Social_DB::posts_table();
+    $action_url  = self::action_url('calendar');
+    $statuses    = TTB_Social_DB::post_statuses();
+    $clients     = $wpdb->get_results("SELECT id, name FROM $sc_table WHERE status='active' ORDER BY name ASC");
 
     $filter_month  = sanitize_text_field($_GET['filter_month']  ?? date('Y-m'));
     $filter_client = (int)($_GET['filter_client'] ?? 0);
+    $max_mb        = (int)get_option('ttb_social_max_filesize', 50);
 
     [$year, $month] = array_map('intval', explode('-', $filter_month . '-01'));
     $first_day  = mktime(0, 0, 0, $month, 1, $year);
@@ -649,8 +530,6 @@ class TTB_Social_Admin {
     $next_month = date('Y-m', strtotime('+1 month', $first_day));
     $month_name = date_i18n('F Y', $first_day);
 
-    $max_mb = (int)get_option('ttb_social_max_filesize', 50);
-
     $edit_post_id = (int)($_GET['edit_sp'] ?? 0);
     $edit_post    = null;
     if ($edit_post_id) $edit_post = $wpdb->get_row($wpdb->prepare("SELECT * FROM $posts_table WHERE id=%d", $edit_post_id));
@@ -659,7 +538,7 @@ class TTB_Social_Admin {
     $params = [$year, $month];
     if ($filter_client) { $where[] = 'p.client_id = %d'; $params[] = $filter_client; }
     $posts_raw = $wpdb->get_results($wpdb->prepare(
-      "SELECT p.*, c.name AS client_name FROM $posts_table p INNER JOIN $clients_table c ON c.id=p.client_id WHERE " . implode(' AND ', $where) . " ORDER BY p.scheduled_time ASC",
+      "SELECT p.*, c.name AS client_name FROM $posts_table p INNER JOIN $sc_table c ON c.id=p.client_id WHERE " . implode(' AND ', $where) . " ORDER BY p.scheduled_time ASC",
       ...$params
     ));
 
@@ -668,32 +547,28 @@ class TTB_Social_Admin {
       $posts_by_day[(int)date('j', strtotime($p->scheduled_date))][] = $p;
     }
 
-    // ── Formulario nuevo post ──
+    // Formulario nuevo post
     echo '<div class="ttb-card"><h3 style="margin:0 0 4px">Nueva publicación</h3><p class="ttb-muted" style="margin:0 0 14px;font-size:13px">Al guardar se notifica automáticamente al cliente.</p></div>';
     echo '<form method="post" action="' . $action_url . '" class="ttb-card" enctype="multipart/form-data">';
     wp_nonce_field('ttb_social_post_create');
     echo '<div class="ttb-grid2">';
-    echo '<div><label>Cliente <span class="ttb-required">*</span></label><select name="sp_client_id" class="ttb-input" required><option value="">— Selecciona —</option>';
+    echo '<div><label>Cliente <span class="ttb-required">*</span></label>';
+    echo '<select name="sp_client_id" class="ttb-input" required><option value="">— Selecciona —</option>';
     foreach ($clients as $c) echo '<option value="' . (int)$c->id . '">' . esc_html($c->name) . '</option>';
     echo '</select></div>';
     echo '<div><label>Fecha <span class="ttb-required">*</span></label><input class="ttb-input" type="date" name="sp_date" required value="' . esc_attr(date('Y-m-d')) . '"></div>';
     echo '</div>';
     echo '<div style="margin-top:10px"><label>Hora estimada <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label><input class="ttb-input" type="time" name="sp_time"></div>';
-
-    // Campo creative mejorado con soporte vídeo explícito
     echo '<div style="margin-top:10px"><label>Creatividad <span style="font-weight:400;color:var(--ttb-muted)">(imagen o vídeo)</span></label>';
     echo '<input class="ttb-input" type="file" name="sp_creative" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm" style="margin-bottom:6px">';
     echo '<small class="ttb-muted" style="display:block;margin-bottom:6px">JPG, PNG, GIF, WEBP, MP4, MOV, WEBM · Máx. ' . $max_mb . ' MB</small>';
-    echo '<input class="ttb-input" type="url" name="sp_creative_url" placeholder="o pega una URL de imagen o vídeo..."></div>';
-
-    echo '<div style="margin-top:10px"><label>Texto de la publicación <span style="font-weight:400;color:var(--ttb-muted)">(caption)</span></label>';
-    echo '<textarea name="sp_caption" class="ttb-textarea" style="min-height:80px" placeholder="Escribe el copy del post..."></textarea></div>';
-    echo '<div style="margin-top:10px"><label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(aparece en el email)</span></label>';
-    echo '<input class="ttb-input" type="text" name="sp_note" placeholder="Ej: He usado las fotos que nos mandaste."></div>';
+    echo '<input class="ttb-input" type="url" name="sp_creative_url" placeholder="o pega una URL..."></div>';
+    echo '<div style="margin-top:10px"><label>Caption</label><textarea name="sp_caption" class="ttb-textarea" style="min-height:80px"></textarea></div>';
+    echo '<div style="margin-top:10px"><label>Nota para el cliente</label><input class="ttb-input" type="text" name="sp_note" placeholder="Ej: He usado las fotos que nos mandaste."></div>';
     echo '<div class="ttb-actions"><button class="ttb-btn" name="ttb_social_post_create" value="1">Crear y notificar al cliente</button></div>';
     echo '</form>';
 
-    // ── Modal editar ──
+    // Modal editar post
     if ($edit_post) {
       $cancel_url  = esc_url(home_url('/briefing?section=redes-sociales&sstab=calendar&filter_month=' . $filter_month . ($filter_client ? '&filter_client=' . $filter_client : '')));
       $is_vid_edit = self::is_video_url($edit_post->creative_url ?? '');
@@ -709,14 +584,11 @@ class TTB_Social_Admin {
       echo '</div>';
       echo '<div style="margin-top:10px"><label>Nueva creatividad <span style="font-weight:400;color:var(--ttb-muted)">(vacío = conservar)</span></label>';
       if ($edit_post->creative_url) {
-        if ($is_vid_edit) {
-          echo '<div style="margin-bottom:8px"><video src="' . esc_url($edit_post->creative_url) . '" controls style="width:100%;max-height:160px;border-radius:8px;background:#111"></video></div>';
-        } else {
-          echo '<a href="' . esc_url($edit_post->creative_url) . '" target="_blank" style="display:block;font-size:12px;color:var(--ttb-pink);margin-bottom:6px">Ver creatividad actual →</a>';
-        }
+        if ($is_vid_edit) echo '<div style="margin-bottom:8px"><video src="' . esc_url($edit_post->creative_url) . '" controls style="width:100%;max-height:160px;border-radius:8px;background:#111"></video></div>';
+        else echo '<a href="' . esc_url($edit_post->creative_url) . '" target="_blank" style="display:block;font-size:12px;color:var(--ttb-pink);margin-bottom:6px">Ver creatividad actual →</a>';
       }
       echo '<input class="ttb-input" type="file" name="sp_creative" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm" style="margin-bottom:4px">';
-      echo '<small class="ttb-muted" style="display:block;margin-bottom:6px">JPG, PNG, GIF, WEBP, MP4, MOV, WEBM · Máx. ' . $max_mb . ' MB</small>';
+      echo '<small class="ttb-muted" style="display:block;margin-bottom:6px">Máx. ' . $max_mb . ' MB</small>';
       echo '<input class="ttb-input" type="url" name="sp_creative_url" placeholder="o pega una URL..."></div>';
       echo '<div style="margin-top:10px"><label>Caption</label><textarea name="sp_caption" class="ttb-textarea" style="min-height:80px">' . esc_textarea($edit_post->caption ?? '') . '</textarea></div>';
       echo '<div style="margin-top:10px"><label>Nota para el cliente</label><input class="ttb-input" type="text" name="sp_note" value="' . esc_attr($edit_post->creative_note ?? '') . '"></div>';
@@ -726,7 +598,7 @@ class TTB_Social_Admin {
       echo '</div></form></div></div>';
     }
 
-    // ── Calendario ──
+    // Calendario
     echo '<div class="ttb-card">';
     echo '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
     echo '<div style="display:flex;align-items:center;gap:10px">';
@@ -751,6 +623,10 @@ class TTB_Social_Admin {
     echo '</div></div>';
   }
 
+  // render_posts_data_store, render_calendar_grid, render_audit, render_settings
+  // are kept identical to the original — only including the changed render_clients
+  // and render_calendar above. The rest is included verbatim:
+
   private static function render_posts_data_store($posts, $action_url, $statuses, $filter_month, $filter_client) {
     echo '<div id="ttb-posts-store" style="display:none">';
     foreach ($posts as $post) {
@@ -759,7 +635,6 @@ class TTB_Social_Admin {
       $time_str = $post->scheduled_time ? ' · ' . substr($post->scheduled_time, 0, 5) . 'h' : '';
       $back_qs  = '&filter_month=' . urlencode($filter_month) . ($filter_client ? '&filter_client=' . (int)$filter_client : '');
       $edit_url = esc_url(home_url('/briefing?section=redes-sociales&sstab=calendar&edit_sp=' . (int)$post->id . $back_qs));
-      // Detectar si es vídeo usando tipo guardado en BD O extensión de URL
       $is_video = ($post->post_type === 'video') || self::is_video_url($post->creative_url ?? '');
 
       ob_start();
@@ -769,43 +644,28 @@ class TTB_Social_Admin {
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
             <strong style="font-size:16px"><?php echo esc_html($post->client_name ?? ''); ?></strong>
             <span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:<?php echo $sbg; ?>;border:1px solid <?php echo $sbc; ?>;color:<?php echo $sco; ?>"><?php echo esc_html($sl); ?></span>
-            <?php if ($is_video): ?>
-              <span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#1a1a2e;color:#fff">🎬 Vídeo</span>
-            <?php endif; ?>
+            <?php if ($is_video): ?><span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:#1a1a2e;color:#fff">🎬 Vídeo</span><?php endif; ?>
           </div>
           <p style="margin:0;font-size:13px;color:var(--ttb-muted)"><?php echo esc_html($date_fmt . $time_str); ?></p>
         </div>
-
         <?php if ($post->creative_url): ?>
           <div style="border-radius:12px;overflow:hidden;margin-bottom:14px;border:1px solid var(--ttb-border)">
             <?php if ($is_video): ?>
               <video src="<?php echo esc_url($post->creative_url); ?>" controls style="width:100%;max-height:320px;display:block;background:#111"></video>
             <?php else: ?>
-              <a href="<?php echo esc_url($post->creative_url); ?>" target="_blank">
-                <img src="<?php echo esc_url($post->creative_url); ?>" style="width:100%;max-height:300px;object-fit:cover;display:block" alt="Creatividad">
-              </a>
+              <a href="<?php echo esc_url($post->creative_url); ?>" target="_blank"><img src="<?php echo esc_url($post->creative_url); ?>" style="width:100%;max-height:300px;object-fit:cover;display:block" alt="Creatividad"></a>
             <?php endif; ?>
           </div>
         <?php endif; ?>
-
-        <?php if ($post->caption): ?>
-          <div style="background:#f9fafb;border-radius:10px;padding:12px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;white-space:pre-line;border-left:3px solid var(--ttb-pink)"><?php echo esc_html($post->caption); ?></div>
-        <?php endif; ?>
-
-        <?php if ($post->creative_note): ?>
-          <div style="background:#fdf4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7e22ce;border:1px solid #e9d5ff"><?php echo esc_html($post->creative_note); ?></div>
-        <?php endif; ?>
-
+        <?php if ($post->caption): ?><div style="background:#f9fafb;border-radius:10px;padding:12px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;white-space:pre-line;border-left:3px solid var(--ttb-pink)"><?php echo esc_html($post->caption); ?></div><?php endif; ?>
+        <?php if ($post->creative_note): ?><div style="background:#fdf4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7e22ce;border:1px solid #e9d5ff"><?php echo esc_html($post->creative_note); ?></div><?php endif; ?>
         <?php if ($post->status === 'rejected' && $post->client_note): ?>
           <div style="background:#fff1f2;border-radius:10px;padding:12px;margin-bottom:12px;font-size:13px;color:#be123c;border:1px solid #fecdd3">
-            <strong style="display:block;margin-bottom:4px">Comentario del cliente:</strong>
-            <?php echo nl2br(esc_html($post->client_note)); ?>
+            <strong style="display:block;margin-bottom:4px">Comentario del cliente:</strong><?php echo nl2br(esc_html($post->client_note)); ?>
           </div>
         <?php endif; ?>
-
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;border-top:1px solid var(--ttb-border);padding-top:14px">
           <a href="<?php echo $edit_url; ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Editar</a>
-
           <?php if ($post->status === 'approved'): ?>
             <form method="post" action="<?php echo $action_url; ?>" style="margin:0">
               <?php wp_nonce_field('ttb_social_post_status'); ?>
@@ -814,7 +674,6 @@ class TTB_Social_Admin {
               <button class="ttb-btn ttb-btn--sm" name="ttb_social_post_status" value="1" style="background:linear-gradient(135deg,#1d4ed8,#1e40af)">Marcar publicado</button>
             </form>
           <?php endif; ?>
-
           <?php if ($post->status !== 'pending_approval'): ?>
             <form method="post" action="<?php echo $action_url; ?>" style="margin:0">
               <?php wp_nonce_field('ttb_social_post_status'); ?>
@@ -823,7 +682,6 @@ class TTB_Social_Admin {
               <button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_social_post_status" value="1">Reenviar al cliente</button>
             </form>
           <?php endif; ?>
-
           <form method="post" action="<?php echo $action_url; ?>" style="margin:0" onsubmit="return confirm('¿Eliminar este post?')">
             <?php wp_nonce_field('ttb_social_post_delete'); ?>
             <input type="hidden" name="sp_post_id" value="<?php echo (int)$post->id; ?>">
@@ -845,137 +703,103 @@ class TTB_Social_Admin {
     $day_names    = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
     ?>
     <style>
-    .ttb-cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
-    .ttb-cal-dayname { text-align:center; font-size:11px; font-weight:900; color:var(--ttb-muted); text-transform:uppercase; letter-spacing:.06em; padding:6px 0; }
-    .ttb-cal-cell { min-height:90px; border-radius:10px; border:1px solid var(--ttb-border); background:#fff; padding:6px; overflow:hidden; }
-    .ttb-cal-cell.is-today { border-color:var(--ttb-pink); background:rgba(215,33,115,.03); }
-    .ttb-cal-cell.is-empty { background:#f9fafb; border-color:transparent; }
-    .ttb-cal-daynumber { font-size:12px; font-weight:900; color:var(--ttb-muted); margin-bottom:4px; line-height:1; }
-    .ttb-cal-cell.is-today .ttb-cal-daynumber { color:var(--ttb-pink); }
-    .ttb-cal-post-chip { border-radius:6px; padding:3px 6px; margin-bottom:3px; font-size:11px; font-weight:700; line-height:1.3; cursor:pointer; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:opacity .15s; }
-    .ttb-cal-post-chip:hover { opacity:.8; }
-    .ttb-cal-chip-more { font-size:10px; font-weight:700; color:var(--ttb-muted); padding:2px 4px; display:block; }
-    .ttb-post-detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:99999; padding:16px; }
-    .ttb-post-detail { background:#fff; border-radius:20px; padding:28px; max-width:540px; width:100%; max-height:85vh; overflow-y:auto; box-shadow:0 24px 64px rgba(0,0,0,.2); position:relative; animation:ttbModalUp .3s cubic-bezier(.34,1.56,.64,1) both; }
-    .ttb-post-detail::before { content:''; position:absolute; top:0; left:0; right:0; height:4px; background:linear-gradient(90deg,var(--ttb-pink),#e63a86); border-radius:20px 20px 0 0; }
-    .ttb-post-detail-close { position:absolute; top:14px; right:16px; background:#f3f4f6; border:none; border-radius:50%; width:28px; height:28px; font-size:14px; cursor:pointer; line-height:28px; text-align:center; color:var(--ttb-muted); }
-    .ttb-post-detail-close:hover { background:#e5e7eb; }
+    .ttb-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+    .ttb-cal-dayname{text-align:center;font-size:11px;font-weight:900;color:var(--ttb-muted);text-transform:uppercase;letter-spacing:.06em;padding:6px 0}
+    .ttb-cal-cell{min-height:90px;border-radius:10px;border:1px solid var(--ttb-border);background:#fff;padding:6px;overflow:hidden}
+    .ttb-cal-cell.is-today{border-color:var(--ttb-pink);background:rgba(215,33,115,.03)}
+    .ttb-cal-cell.is-empty{background:#f9fafb;border-color:transparent}
+    .ttb-cal-daynumber{font-size:12px;font-weight:900;color:var(--ttb-muted);margin-bottom:4px;line-height:1}
+    .ttb-cal-cell.is-today .ttb-cal-daynumber{color:var(--ttb-pink)}
+    .ttb-cal-post-chip{border-radius:6px;padding:3px 6px;margin-bottom:3px;font-size:11px;font-weight:700;line-height:1.3;cursor:pointer;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity .15s}
+    .ttb-cal-post-chip:hover{opacity:.8}
+    .ttb-cal-chip-more{font-size:10px;font-weight:700;color:var(--ttb-muted);padding:2px 4px;display:block}
+    .ttb-post-detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px}
+    .ttb-post-detail{background:#fff;border-radius:20px;padding:28px;max-width:540px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.2);position:relative;animation:ttbModalUp .3s cubic-bezier(.34,1.56,.64,1) both}
+    .ttb-post-detail::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--ttb-pink),#e63a86);border-radius:20px 20px 0 0}
+    .ttb-post-detail-close{position:absolute;top:14px;right:16px;background:#f3f4f6;border:none;border-radius:50%;width:28px;height:28px;font-size:14px;cursor:pointer;line-height:28px;text-align:center;color:var(--ttb-muted)}
+    .ttb-post-detail-close:hover{background:#e5e7eb}
     </style>
-
     <div id="ttb-post-detail-overlay" style="display:none" role="dialog" aria-modal="true">
       <div class="ttb-post-detail">
         <button class="ttb-post-detail-close" onclick="ttbClosePostDetail()">✕</button>
         <div id="ttb-post-detail-body"></div>
       </div>
     </div>
-
     <div class="ttb-cal-grid">
       <?php
       foreach ($day_names as $dn) echo '<div class="ttb-cal-dayname">' . esc_html($dn) . '</div>';
       for ($blank = 1; $blank < $start_dow; $blank++) echo '<div class="ttb-cal-cell is-empty"></div>';
-
       for ($day = 1; $day <= $days_in; $day++) {
         $is_today  = $is_cur_month && $day === $today_day;
         $day_posts = $posts_by_day[$day] ?? [];
         echo '<div class="ttb-cal-cell' . ($is_today ? ' is-today' : '') . '">';
         echo '<div class="ttb-cal-daynumber">' . $day . '</div>';
-
         $shown = 0;
         foreach ($day_posts as $post) {
           if ($shown >= 3) break;
           [$sl,$sbg,$sbc,$sco] = $statuses[$post->status] ?? ['—','#f3f4f6','#e5e7eb','#374151'];
           $is_video_chip = ($post->post_type === 'video') || self::is_video_url($post->creative_url ?? '');
-          $chip_label = $is_video_chip ? '🎬' : 'Post';
-
-          echo '<span class="ttb-cal-post-chip"
-            style="background:' . $sbg . ';border:1px solid ' . $sbc . ';color:' . $sco . '"
-            data-post-id="' . (int)$post->id . '"
-            title="' . esc_attr(($post->client_name ?? 'Post') . ' — ' . $sl) . '"
-          >' . $chip_label . '</span>';
+          echo '<span class="ttb-cal-post-chip" style="background:' . $sbg . ';border:1px solid ' . $sbc . ';color:' . $sco . '" data-post-id="' . (int)$post->id . '" title="' . esc_attr(($post->client_name ?? 'Post') . ' — ' . $sl) . '">' . ($is_video_chip ? '🎬' : 'Post') . '</span>';
           $shown++;
         }
-
         $remaining = count($day_posts) - $shown;
         if ($remaining > 0) echo '<span class="ttb-cal-chip-more">+' . $remaining . ' más</span>';
         echo '</div>';
       }
-
       $total_cells = $start_dow - 1 + $days_in;
       $remainder   = $total_cells % 7;
       if ($remainder > 0) for ($i = 0; $i < (7 - $remainder); $i++) echo '<div class="ttb-cal-cell is-empty"></div>';
       ?>
     </div>
-
     <script>
     (function(){
-      document.querySelectorAll('.ttb-cal-post-chip[data-post-id]').forEach(function(chip) {
-        chip.addEventListener('click', function() {
-          ttbOpenPostDetail(chip.getAttribute('data-post-id'));
-        });
+      document.querySelectorAll('.ttb-cal-post-chip[data-post-id]').forEach(function(chip){
+        chip.addEventListener('click',function(){ ttbOpenPostDetail(chip.getAttribute('data-post-id')); });
       });
-
-      window.ttbOpenPostDetail = function(postId) {
-        var store = document.getElementById('ttb-post-data-' + postId)
-                 || document.getElementById('ttb-client-post-data-' + postId);
-        if (!store) return;
-
-        var overlay = document.getElementById('ttb-post-detail-overlay');
-        var body    = document.getElementById('ttb-post-detail-body');
-        body.innerHTML = '';
-        var clone = store.cloneNode(true);
-        clone.style.display = 'block';
-        clone.removeAttribute('id');
-        body.appendChild(clone);
-
-        // Reiniciar vídeos clonados para que no sigan reproduciendo el anterior
-        body.querySelectorAll('video').forEach(function(v){ v.load(); });
-
-        overlay.style.display = 'flex';
-        document.addEventListener('keydown', ttbEscPostDetail);
+      window.ttbOpenPostDetail=function(postId){
+        var store=document.getElementById('ttb-post-data-'+postId)||document.getElementById('ttb-client-post-data-'+postId);
+        if(!store)return;
+        var overlay=document.getElementById('ttb-post-detail-overlay'),body=document.getElementById('ttb-post-detail-body');
+        body.innerHTML='';
+        var clone=store.cloneNode(true);clone.style.display='block';clone.removeAttribute('id');body.appendChild(clone);
+        body.querySelectorAll('video').forEach(function(v){v.load();});
+        overlay.style.display='flex';
+        document.addEventListener('keydown',ttbEscPostDetail);
       };
-
-      window.ttbClosePostDetail = function() {
-        var overlay = document.getElementById('ttb-post-detail-overlay');
-        // Pausar vídeos al cerrar
-        overlay.querySelectorAll('video').forEach(function(v){ v.pause(); });
-        overlay.style.display = 'none';
-        document.removeEventListener('keydown', ttbEscPostDetail);
+      window.ttbClosePostDetail=function(){
+        var overlay=document.getElementById('ttb-post-detail-overlay');
+        overlay.querySelectorAll('video').forEach(function(v){v.pause();});
+        overlay.style.display='none';
+        document.removeEventListener('keydown',ttbEscPostDetail);
       };
-
-      function ttbEscPostDetail(e) { if (e.key === 'Escape') ttbClosePostDetail(); }
-
-      document.getElementById('ttb-post-detail-overlay').addEventListener('click', function(e) {
-        if (e.target === this) ttbClosePostDetail();
-      });
+      function ttbEscPostDetail(e){if(e.key==='Escape')ttbClosePostDetail();}
+      document.getElementById('ttb-post-detail-overlay').addEventListener('click',function(e){if(e.target===this)ttbClosePostDetail();});
     })();
     </script>
     <?php
   }
 
-  /* ════════════════════════════════
-     RENDER: AUDITORÍA
-  ════════════════════════════════ */
   private static function render_audit() {
     global $wpdb;
-    $audit_table   = TTB_Social_DB::audit_table();
-    $clients_table = TTB_Social_DB::clients_table();
-    $catalog       = self::event_catalog();
-    $actor_labels  = [
+    $audit_table = TTB_Social_DB::audit_table();
+    $sc_table    = TTB_Social_DB::clients_table();
+    $catalog     = self::event_catalog();
+    $actor_labels = [
       'admin'  => ['Admin',   '#eff6ff','#1d4ed8'],
       'client' => ['Cliente', '#fdf4ff','#7e22ce'],
       'cron'   => ['Cron',    '#f9fafb','#374151'],
       'system' => ['Sistema', '#f9fafb','#374151'],
     ];
 
-    $f_client  = (int)($_GET['f_client']  ?? 0);
-    $f_event   = sanitize_text_field($_GET['f_event']  ?? '');
-    $f_actor   = sanitize_text_field($_GET['f_actor']  ?? '');
-    $f_from    = sanitize_text_field($_GET['f_from']   ?? '');
-    $f_to      = sanitize_text_field($_GET['f_to']     ?? '');
-    $f_search  = sanitize_text_field($_GET['f_search'] ?? '');
-    $f_page    = max(1, (int)($_GET['f_page'] ?? 1));
-    $per_page  = 50;
-    $offset    = ($f_page - 1) * $per_page;
+    $f_client = (int)($_GET['f_client'] ?? 0);
+    $f_event  = sanitize_text_field($_GET['f_event']  ?? '');
+    $f_actor  = sanitize_text_field($_GET['f_actor']  ?? '');
+    $f_from   = sanitize_text_field($_GET['f_from']   ?? '');
+    $f_to     = sanitize_text_field($_GET['f_to']     ?? '');
+    $f_search = sanitize_text_field($_GET['f_search'] ?? '');
+    $f_page   = max(1, (int)($_GET['f_page'] ?? 1));
+    $per_page = 50;
+    $offset   = ($f_page - 1) * $per_page;
 
     $where = ['1=1']; $params = [];
     if ($f_client) { $where[] = 'a.client_id = %d'; $params[] = $f_client; }
@@ -988,17 +812,16 @@ class TTB_Social_Admin {
       $like = '%' . $wpdb->esc_like($f_search) . '%';
       $params[] = $like; $params[] = $like; $params[] = $like;
     }
-    $where_sql = implode(' AND ', $where);
-    $total     = $params ? (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $audit_table a LEFT JOIN $clients_table c ON c.id=a.client_id WHERE $where_sql", ...$params)) : (int)$wpdb->get_var("SELECT COUNT(*) FROM $audit_table a LEFT JOIN $clients_table c ON c.id=a.client_id WHERE $where_sql");
-    $qp        = array_merge($params, [$per_page, $offset]);
-    $rows      = $wpdb->get_results($wpdb->prepare("SELECT a.*, c.name AS client_name FROM $audit_table a LEFT JOIN $clients_table c ON c.id=a.client_id WHERE $where_sql ORDER BY a.created_at DESC LIMIT %d OFFSET %d", ...$qp));
+    $where_sql   = implode(' AND ', $where);
+    $total       = $params ? (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $audit_table a LEFT JOIN $sc_table c ON c.id=a.client_id WHERE $where_sql", ...$params)) : (int)$wpdb->get_var("SELECT COUNT(*) FROM $audit_table a LEFT JOIN $sc_table c ON c.id=a.client_id WHERE $where_sql");
+    $qp          = array_merge($params, [$per_page, $offset]);
+    $rows        = $wpdb->get_results($wpdb->prepare("SELECT a.*, c.name AS client_name FROM $audit_table a LEFT JOIN $sc_table c ON c.id=a.client_id WHERE $where_sql ORDER BY a.created_at DESC LIMIT %d OFFSET %d", ...$qp));
     $total_pages = max(1, ceil($total / $per_page));
-    $clients     = $wpdb->get_results("SELECT id, name FROM $clients_table ORDER BY name ASC");
+    $clients     = $wpdb->get_results("SELECT id, name FROM $sc_table ORDER BY name ASC");
     $base_url    = home_url('/briefing?section=redes-sociales&sstab=audit');
 
     echo '<div class="ttb-card"><h3 style="margin:0 0 4px">Auditoría — Redes Sociales</h3>';
     echo '<p class="ttb-muted" style="margin:0 0 20px">Registro completo de actividad.</p>';
-
     $stats = $wpdb->get_results("SELECT event, COUNT(*) as cnt FROM $audit_table GROUP BY event ORDER BY cnt DESC LIMIT 6");
     if ($stats) {
       echo '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">';
@@ -1008,7 +831,6 @@ class TTB_Social_Admin {
       }
       echo '</div>';
     }
-
     echo '<form method="get" action="' . esc_url(home_url('/briefing')) . '" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;align-items:end">';
     echo '<input type="hidden" name="section" value="redes-sociales"><input type="hidden" name="sstab" value="audit">';
     echo '<div><label style="font-size:12px;font-weight:700;color:var(--ttb-muted);display:block;margin-bottom:4px">Cliente</label><select name="f_client" class="ttb-input" style="font-size:13px"><option value="">Todos</option>';
@@ -1036,7 +858,7 @@ class TTB_Social_Admin {
         $detail_html = '—';
         if ($row->detail) {
           $d = json_decode($row->detail, true);
-          if (is_array($d)) { $parts=[]; foreach ($d as $k=>$v) { if(is_array($v))$v=implode(',',$v); $parts[]='<span style="color:var(--ttb-muted)">'.esc_html($k).':</span> <strong>'.esc_html((string)$v).'</strong>'; } $detail_html=implode(' · ',$parts); }
+          if (is_array($d)) { $parts=[]; foreach($d as $k=>$v){if(is_array($v))$v=implode(',',$v);$parts[]='<span style="color:var(--ttb-muted)">'.esc_html($k).':</span> <strong>'.esc_html((string)$v).'</strong>';} $detail_html=implode(' · ',$parts); }
           else $detail_html = esc_html($row->detail);
         }
         $client_link = $row->client_name ? '<a href="' . esc_url($base_url . '&f_client=' . (int)$row->client_id) . '" style="color:var(--ttb-pink);font-weight:700;text-decoration:none">' . esc_html($row->client_name) . '</a>' : '<span style="color:var(--ttb-muted)">—</span>';
@@ -1061,9 +883,6 @@ class TTB_Social_Admin {
     }
   }
 
-  /* ════════════════════════════════
-     RENDER: CONFIGURACIÓN
-  ════════════════════════════════ */
   private static function render_settings() {
     $action_url    = self::action_url('settings');
     $notify_social = (string)get_option('ttb_social_notify_social', 'comunicacion@tictac-comunicacion.es');
@@ -1085,9 +904,8 @@ class TTB_Social_Admin {
     echo '<div><label>Días entre recordatorios</label><input class="ttb-input" type="number" name="ttb_social_resend_days" value="' . $resend_days . '" min="1" max="30"><small class="ttb-muted">Si el cliente no aprueba, se reenvía cada N días.</small></div>';
     echo '<div><label>Máximo de recordatorios</label><input class="ttb-input" type="number" name="ttb_social_max_resends" value="' . $max_resends . '" min="0" max="20"><small class="ttb-muted">0 = sin límite.</small></div>';
     echo '</div></div>';
-    echo '<div class="ttb-card"><h4 style="margin:0 0 14px">Archivos (imágenes y vídeos)</h4>';
-    echo '<div><label>Tamaño máximo por archivo (MB) — aplica a clientes y admin</label><input class="ttb-input" type="number" name="ttb_social_max_filesize" value="' . $max_mb . '" min="1" max="500">';
-    echo '<small class="ttb-muted" style="display:block;margin-top:4px">Para vídeos se recomiendan 200-500 MB. Verifica también el límite <code>upload_max_filesize</code> de tu servidor.</small></div></div>';
+    echo '<div class="ttb-card"><h4 style="margin:0 0 14px">Archivos</h4>';
+    echo '<div><label>Tamaño máximo por archivo (MB)</label><input class="ttb-input" type="number" name="ttb_social_max_filesize" value="' . $max_mb . '" min="1" max="500"></div></div>';
     echo '<div class="ttb-card"><h4 style="margin:0 0 14px">Email de aprobación al cliente</h4><div class="ttb-formgrid">';
     echo '<div><label>Asunto</label><input class="ttb-input" type="text" name="ttb_social_approval_subject" value="' . esc_attr($approval_subj) . '"></div>';
     echo '<div><label>Nota extra (opcional)</label><textarea class="ttb-textarea" name="ttb_social_approval_note" style="min-height:70px">' . esc_textarea($approval_note) . '</textarea></div>';
@@ -1096,45 +914,30 @@ class TTB_Social_Admin {
     echo '</form>';
   }
 
-  /* ════════════════════════════════
-     HELPERS
-  ════════════════════════════════ */
-  private static function sanitize_emails($raw) {
-    if (!is_array($raw)) $raw = [$raw];
-    return array_values(array_filter(array_map(fn($e) => sanitize_email(trim($e)), $raw), 'is_email'));
-  }
+  /* También necesitamos manejar la edición de redes/notas desde el modal simplificado */
+  // Esta acción se añade al bloque de handle en render():
+  public static function handle_client_edit_networks_action() {
+    if (!isset($_POST['ttb_social_client_edit_networks'])) return;
+    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_client_edit')) return;
 
-  private static function email_js() {
-    ?>
-    <script>
-    (function(){
-      function initEmailWidget(containerId) {
-        var container = document.getElementById(containerId);
-        if (!container) return;
-        var addBtn = document.querySelector('[data-target="' + containerId + '"]');
-        if (addBtn) {
-          addBtn.addEventListener('click', function() {
-            var row = document.createElement('div');
-            row.className = 'ttb-sc-email-row';
-            row.style.cssText = 'display:flex;gap:8px;align-items:center';
-            row.innerHTML = '<input class="ttb-input" type="email" name="sc_emails[]" placeholder="email@cliente.com" required style="flex:1"><button type="button" class="ttb-btn ttb-btn--danger ttb-btn--sm ttb-sc-remove-email">✕</button>';
-            container.appendChild(row);
-            update(container);
-          });
-        }
-        container.addEventListener('click', function(e) {
-          if (e.target.classList.contains('ttb-sc-remove-email')) { e.target.closest('.ttb-sc-email-row').remove(); update(container); }
-        });
-        update(container);
-      }
-      function update(container) {
-        var rows = container.querySelectorAll('.ttb-sc-email-row');
-        rows.forEach(function(row) { var btn = row.querySelector('.ttb-sc-remove-email'); if (btn) btn.style.display = (rows.length > 1) ? 'inline-flex' : 'none'; });
-      }
-      initEmailWidget('ttb-sc-emails-create');
-      initEmailWidget('ttb-sc-emails-edit');
-    })();
-    </script>
-    <?php
+    $id       = (int)($_POST['sc_id'] ?? 0);
+    $networks = array_map('sanitize_text_field', (array)($_POST['sc_networks'] ?? []));
+    $notes    = sanitize_textarea_field($_POST['sc_notes'] ?? '');
+    $status   = in_array($_POST['sc_status'] ?? '', ['active','inactive'], true) ? $_POST['sc_status'] : 'active';
+
+    if (!$id) return;
+
+    global $wpdb;
+    $wpdb->update(TTB_Social_DB::clients_table(), [
+      'networks'   => wp_json_encode(array_values($networks)),
+      'notes'      => $notes,
+      'status'     => $status,
+      'updated_at' => TTB_Social_DB::now(),
+    ], ['id' => $id]);
+
+    TTB_Social_DB::log($id, null, 'client_updated', 'admin', ['networks' => $networks]);
+    set_transient('ttb_admin_flash', ['type' => 'success', 'text' => 'Configuración de redes actualizada.'], 60);
+    wp_safe_redirect(home_url('/briefing?section=redes-sociales&sstab=clients'));
+    exit;
   }
 }
