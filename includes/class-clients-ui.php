@@ -17,30 +17,93 @@ if (class_exists('TTB_Clients_UI')) return;
  */
 class TTB_Clients_UI {
 
-  private static function flash_and_redirect($type, $text, $url = null) {
+private static function flash_and_redirect($type, $text, $url = null) {
     set_transient('ttb_admin_flash', ['type' => $type, 'text' => $text], 60);
     if (!$url) $url = home_url('/briefing?section=clientes');
-    
-    // Limpiar cualquier output previo en el buffer
-    if (ob_get_level()) {
-        ob_end_clean();
+ 
+    // Limpiar TODOS los niveles del output buffer
+    while (ob_get_level() > 0) {
+      ob_end_clean();
     }
-    
-    header('Location: ' . $url, true, 302);
+ 
+    if (!headers_sent()) {
+      header('Location: ' . esc_url_raw($url), true, 302);
+      exit;
+    }
+ 
+    // Fallback: si los headers ya fueron enviados, usar JS redirect
+    echo '<!DOCTYPE html><html><head>';
+    echo '<meta http-equiv="refresh" content="0;url=' . esc_attr($url) . '">';
+    echo '</head><body>';
+    echo '<script>window.location.replace(' . wp_json_encode($url) . ');</script>';
+    echo '</body></html>';
     exit;
-}
+  }
 
   public static function render_and_handle_forms() {
     // Hook point para el futuro. (vacío)
 }
 
-  public static function render() {
+public static function render() {
     self::handle_create();
     self::handle_edit();
     self::handle_delete();
     self::handle_resend();
+    self::sync_social_clients(); 
     self::render_create_form();
     self::render_list();
+}
+
+
+private static function sync_social_clients() {
+    global $wpdb;
+    $clients_table = TTB_DB::clients_table();
+    $sc_table      = TTB_Social_DB::clients_table();
+
+    // Buscar todos los clientes que tienen servicio 'social'
+    $clients = $wpdb->get_results("SELECT * FROM $clients_table LIMIT 500");
+
+    foreach ($clients as $c) {
+        $services = json_decode((string)$c->services, true) ?: [];
+        if (!in_array('social', $services, true)) continue;
+
+        // Comprobar si ya existe el vínculo
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $sc_table WHERE ttb_client_id = %d LIMIT 1",
+            (int)$c->id
+        ));
+
+        if ($existing) {
+            // Ya existe — solo actualizar nombre y emails por si han cambiado
+            $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
+            $wpdb->update($sc_table, [
+                'name'       => $c->name,
+                'emails'     => wp_json_encode(array_values($emails)),
+                'updated_at' => TTB_Social_DB::now(),
+            ], ['ttb_client_id' => (int)$c->id]);
+            continue;
+        }
+
+        // No existe — buscar por nombre exacto (clientes legacy sin ttb_client_id)
+        $legacy = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $sc_table WHERE name = %s AND (ttb_client_id IS NULL OR ttb_client_id = 0) LIMIT 1",
+            $c->name
+        ));
+
+        if ($legacy) {
+            // Vincular el registro existente al cliente central
+            $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
+            $wpdb->update($sc_table, [
+                'ttb_client_id' => (int)$c->id,
+                'emails'        => wp_json_encode(array_values($emails)),
+                'updated_at'    => TTB_Social_DB::now(),
+            ], ['id' => (int)$legacy->id]);
+        } else {
+            // Crear registro nuevo desde cero
+            $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
+            self::maybe_create_social_client((int)$c->id, (string)$c->name, $emails);
+        }
+    }
 }
 
   /* ════════════════════════════════════════
