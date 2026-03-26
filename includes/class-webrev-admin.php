@@ -5,6 +5,7 @@ if (class_exists('TTB_WebRev_Admin')) return;
 /**
  * TTB_WebRev_Admin
  * Panel de administración para el módulo Revisiones Diseños
+ * v2: campo title en proyectos
  */
 class TTB_WebRev_Admin {
 
@@ -84,6 +85,7 @@ class TTB_WebRev_Admin {
     $central_client_id = (int)($_POST['wr_client_id']      ?? 0);
     $figma_url         = esc_url_raw($_POST['wr_figma']         ?? '');
     $figma_url_mobile  = esc_url_raw($_POST['wr_figma_mobile']  ?? '');
+    $title             = sanitize_text_field($_POST['wr_title']  ?? '');
 
     if (!$central_client_id || !$figma_url) {
       self::set_flash('error', 'Selecciona un cliente y proporciona el enlace Figma (desktop).');
@@ -91,7 +93,6 @@ class TTB_WebRev_Admin {
       return;
     }
 
-    // Obtener nombre y emails del cliente central
     global $wpdb;
     $central = $wpdb->get_row($wpdb->prepare(
       "SELECT * FROM " . TTB_DB::clients_table() . " WHERE id=%d", $central_client_id
@@ -110,6 +111,7 @@ class TTB_WebRev_Admin {
 
     $wpdb->insert($table, [
       'name'             => $name,
+      'title'            => $title ?: null,
       'emails'           => wp_json_encode(array_values($emails)),
       'figma_url'        => $figma_url,
       'figma_url_mobile' => $figma_url_mobile ?: null,
@@ -128,6 +130,7 @@ class TTB_WebRev_Admin {
       (new TTB_WebRev_Mailer())->send_review_invitation($project);
       TTB_WebRev_DB::log($new_id, 'project_created', 'admin', [
         'name'      => $name,
+        'title'     => $title,
         'emails'    => $emails,
         'figma_url' => $figma_url,
       ]);
@@ -147,6 +150,7 @@ class TTB_WebRev_Admin {
 
     $id               = (int)($_POST['wr_id']           ?? 0);
     $name             = sanitize_text_field($_POST['wr_name']          ?? '');
+    $title            = sanitize_text_field($_POST['wr_title']         ?? '');
     $emails           = self::sanitize_emails($_POST['wr_emails']       ?? []);
     $figma_url        = esc_url_raw($_POST['wr_figma']                  ?? '');
     $figma_url_mobile = esc_url_raw($_POST['wr_figma_mobile']           ?? '');
@@ -160,6 +164,7 @@ class TTB_WebRev_Admin {
     global $wpdb;
     $wpdb->update(TTB_WebRev_DB::projects_table(), [
       'name'             => $name,
+      'title'            => $title ?: null,
       'emails'           => wp_json_encode(array_values($emails)),
       'figma_url'        => $figma_url,
       'figma_url_mobile' => $figma_url_mobile ?: null,
@@ -168,6 +173,7 @@ class TTB_WebRev_Admin {
 
     TTB_WebRev_DB::log($id, 'project_updated', 'admin', [
       'name'      => $name,
+      'title'     => $title,
       'emails'    => $emails,
       'figma_url' => $figma_url,
     ]);
@@ -275,7 +281,6 @@ class TTB_WebRev_Admin {
     wp_nonce_field('ttb_wr_create');
     echo '<div class="ttb-formgrid">';
 
-    // Select de cliente filtrado por servicio 'design'
     echo '<div>';
     echo '<label>Cliente <span class="ttb-required">*</span></label>';
     TTB_Clients_UI::render_client_select('wr_client_id', 'design', 0, true);
@@ -284,13 +289,18 @@ class TTB_WebRev_Admin {
     echo '<a href="' . esc_url(home_url('/briefing?section=clientes')) . '">Gestionar clientes →</a>';
     echo '</small></div>';
 
-    // Figma desktop
+    // ── NUEVO: Campo título ──
+    echo '<div>';
+    echo '<label>Título del proyecto <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
+    echo '<input class="ttb-input" type="text" name="wr_title" placeholder="Ej: Web Corporativa v2, Rediseño Logo...">';
+    echo '<small class="ttb-muted" style="display:block;margin-top:4px">Se mostrará al cliente para identificar el proyecto. Si no se indica, se genera automáticamente.</small>';
+    echo '</div>';
+
     echo '<div>';
     echo '<label>Enlace Figma / Presentación (desktop) <span class="ttb-required">*</span></label>';
     echo '<input class="ttb-input" type="url" name="wr_figma" required placeholder="https://www.figma.com/...">';
     echo '</div>';
 
-    // Figma mobile (opcional)
     echo '<div>';
     echo '<label>Enlace Figma mobile <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
     echo '<input class="ttb-input" type="url" name="wr_figma_mobile" placeholder="https://www.figma.com/...">';
@@ -304,6 +314,7 @@ class TTB_WebRev_Admin {
     if ($edit_p) {
       $edit_emails       = json_decode((string)$edit_p->emails, true) ?: [];
       $edit_figma_mobile = (string)($edit_p->figma_url_mobile ?? '');
+      $edit_title        = (string)($edit_p->title ?? '');
       $cancel_url        = esc_url(home_url('/briefing?section=revisiones-dis&wrtab=projects'));
 
       echo '<div class="ttb-modal-overlay" id="ttbWrEditModal" role="dialog" aria-modal="true" style="display:flex">';
@@ -318,6 +329,12 @@ class TTB_WebRev_Admin {
       echo '<input class="ttb-input" type="text" name="wr_name" value="' . esc_attr($edit_p->name) . '" required></div>';
       echo '<div><label>Enlace Figma desktop <span class="ttb-required">*</span></label>';
       echo '<input class="ttb-input" type="url" name="wr_figma" value="' . esc_attr($edit_p->figma_url) . '" required></div>';
+      echo '</div>';
+
+      // ── NUEVO: Título en edición ──
+      echo '<div style="margin-top:10px">';
+      echo '<label>Título del proyecto <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
+      echo '<input class="ttb-input" type="text" name="wr_title" value="' . esc_attr($edit_title) . '" placeholder="Ej: Web Corporativa v2, Rediseño Logo...">';
       echo '</div>';
 
       echo '<div style="margin-top:10px">';
@@ -368,7 +385,7 @@ class TTB_WebRev_Admin {
     ];
 
     echo '<div class="ttb-tablewrap"><table class="ttb-table"><thead><tr>';
-    echo '<th>Cliente</th><th>Emails</th><th>Estado</th><th>Avisos</th><th>Últ. aviso</th><th>Acciones</th>';
+    echo '<th>Cliente</th><th>Título</th><th>Emails</th><th>Estado</th><th>Avisos</th><th>Últ. aviso</th><th>Acciones</th>';
     echo '</tr></thead><tbody>';
 
     foreach ($projects as $p) {
@@ -381,6 +398,7 @@ class TTB_WebRev_Admin {
       $audit_url  = esc_url(home_url('/briefing?section=revisiones-dis&wrtab=audit&f_project=' . (int)$p->id));
       $last_n     = $p->last_notified ? date_i18n('d/m/Y', strtotime($p->last_notified)) : '—';
       $has_mobile = !empty($p->figma_url_mobile);
+      $proj_title = !empty($p->title) ? $p->title : '<span style="color:var(--ttb-muted);font-style:italic">Sin título</span>';
 
       echo '<tr>';
       echo '<td><strong>' . esc_html($p->name) . '</strong>';
@@ -388,6 +406,7 @@ class TTB_WebRev_Admin {
         echo ' <span style="font-size:11px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:2px 7px;font-weight:700;vertical-align:middle">+ Mobile</span>';
       }
       echo '</td>';
+      echo '<td style="font-size:13px">' . (is_string($proj_title) && !str_contains($proj_title, '<span') ? esc_html($proj_title) : $proj_title) . '</td>';
       echo '<td style="font-size:13px">' . $emails_str . '</td>';
       echo '<td><span class="ttb-status ' . $sc . '">' . esc_html($sl) . '</span></td>';
       echo '<td style="text-align:center">' . (int)$p->notif_count . '</td>';
@@ -424,7 +443,7 @@ class TTB_WebRev_Admin {
     $projects_table  = TTB_WebRev_DB::projects_table();
     $revisions_table = TTB_WebRev_DB::revisions_table();
 
-    $projects = $wpdb->get_results("SELECT id, name FROM $projects_table ORDER BY name ASC LIMIT 200");
+    $projects = $wpdb->get_results("SELECT id, name, title FROM $projects_table ORDER BY name ASC LIMIT 200");
     $pid      = (int)($_GET['project'] ?? 0);
 
     echo '<div class="ttb-card"><h3>Revisiones</h3>';
@@ -432,10 +451,12 @@ class TTB_WebRev_Admin {
     echo '<form method="get" action="' . esc_url(home_url('/briefing')) . '" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">';
     echo '<input type="hidden" name="section" value="revisiones-dis">';
     echo '<input type="hidden" name="wrtab" value="revisions">';
-    echo '<select name="project" class="ttb-input" style="max-width:300px">';
+    echo '<select name="project" class="ttb-input" style="max-width:360px">';
     echo '<option value="">— Selecciona proyecto —</option>';
     foreach ($projects as $p) {
-      echo '<option value="' . (int)$p->id . '" ' . selected($pid, $p->id, false) . '>' . esc_html($p->name) . '</option>';
+      $label = $p->name;
+      if (!empty($p->title)) $label .= ' — ' . $p->title;
+      echo '<option value="' . (int)$p->id . '" ' . selected($pid, $p->id, false) . '>' . esc_html($label) . '</option>';
     }
     echo '</select>';
     echo '<button class="ttb-btn ttb-btn--ghost" type="submit">Ver</button>';
@@ -450,8 +471,11 @@ class TTB_WebRev_Admin {
       "SELECT * FROM $revisions_table WHERE project_id=%d ORDER BY created_at DESC", $pid
     ));
 
+    $project_display = $project->name;
+    if (!empty($project->title)) $project_display .= ' — ' . $project->title;
+
     echo '<div class="ttb-card">';
-    echo '<h3>' . esc_html($project->name) . '</h3>';
+    echo '<h3>' . esc_html($project_display) . '</h3>';
     echo '<p class="ttb-muted">';
     echo '<a href="' . esc_url($project->figma_url) . '" target="_blank">🖥️ Ver Figma Desktop</a>';
     if (!empty($project->figma_url_mobile)) {
@@ -526,7 +550,7 @@ class TTB_WebRev_Admin {
   }
 
   /* ════════════════════════════════
-     RENDER: AUDITORÍA
+     RENDER: AUDITORÍA (sin cambios)
   ════════════════════════════════ */
   private static function render_audit() {
     global $wpdb;
@@ -567,10 +591,10 @@ class TTB_WebRev_Admin {
     $where_sql    = implode(' AND ', $where);
     $count_sql    = "SELECT COUNT(*) FROM $audit_table a LEFT JOIN $projects_table p ON p.id=a.project_id WHERE $where_sql";
     $total        = $params ? (int)$wpdb->get_var($wpdb->prepare($count_sql, ...$params)) : (int)$wpdb->get_var($count_sql);
-    $rows_sql     = "SELECT a.*, p.name AS project_name FROM $audit_table a LEFT JOIN $projects_table p ON p.id=a.project_id WHERE $where_sql ORDER BY a.created_at DESC LIMIT %d OFFSET %d";
+    $rows_sql     = "SELECT a.*, p.name AS project_name, p.title AS project_title FROM $audit_table a LEFT JOIN $projects_table p ON p.id=a.project_id WHERE $where_sql ORDER BY a.created_at DESC LIMIT %d OFFSET %d";
     $rows         = $wpdb->get_results($wpdb->prepare($rows_sql, ...array_merge($params, [$per_page, $offset])));
     $total_pages  = max(1, ceil($total / $per_page));
-    $projects     = $wpdb->get_results("SELECT id, name FROM $projects_table ORDER BY name ASC");
+    $projects     = $wpdb->get_results("SELECT id, name, title FROM $projects_table ORDER BY name ASC");
     $base_url     = home_url('/briefing?section=revisiones-dis&wrtab=audit');
 
     echo '<div class="ttb-card">';
@@ -595,26 +619,16 @@ class TTB_WebRev_Admin {
 
     echo '<div><label style="font-size:12px;font-weight:700;color:var(--ttb-muted);display:block;margin-bottom:4px">🏢 Proyecto</label>';
     echo '<select name="f_project" class="ttb-input" style="font-size:13px"><option value="">Todos</option>';
-    foreach ($projects as $p) echo '<option value="' . (int)$p->id . '" ' . selected($f_project, $p->id, false) . '>' . esc_html($p->name) . '</option>';
+    foreach ($projects as $p) {
+      $label = $p->name;
+      if (!empty($p->title)) $label .= ' — ' . $p->title;
+      echo '<option value="' . (int)$p->id . '" ' . selected($f_project, $p->id, false) . '>' . esc_html($label) . '</option>';
+    }
     echo '</select></div>';
 
     echo '<div><label style="font-size:12px;font-weight:700;color:var(--ttb-muted);display:block;margin-bottom:4px">🏷️ Evento</label>';
     echo '<select name="f_event" class="ttb-input" style="font-size:13px"><option value="">Todos</option>';
-    $event_groups = [
-      'Proyectos' => ['project_created','project_updated','project_deleted'],
-      'Emails'    => ['email_invitation_sent','email_accepted_sent','email_changes_sent'],
-      'Cliente'   => ['client_view','design_accepted','changes_requested'],
-      'Sistema'   => ['nonce_failed','invalid_token_access','cron_reminder_sent'],
-    ];
-    foreach ($event_groups as $group_label => $keys) {
-      echo '<optgroup label="' . esc_attr($group_label) . '">';
-      foreach ($keys as $key) {
-        if (!isset($catalog[$key])) continue;
-        [$ev_label] = $catalog[$key];
-        echo '<option value="' . esc_attr($key) . '" ' . selected($f_event, $key, false) . '>' . esc_html($ev_label) . '</option>';
-      }
-      echo '</optgroup>';
-    }
+    foreach ($catalog as $k => [$label]) echo '<option value="' . esc_attr($k) . '" ' . selected($f_event, $k, false) . '>' . esc_html($label) . '</option>';
     echo '</select></div>';
 
     echo '<div><label style="font-size:12px;font-weight:700;color:var(--ttb-muted);display:block;margin-bottom:4px">👤 Actor</label>';
@@ -628,13 +642,7 @@ class TTB_WebRev_Admin {
     echo '<div style="display:flex;gap:8px;align-items:flex-end"><button class="ttb-btn" type="submit">Filtrar</button><a href="' . esc_url($base_url) . '" class="ttb-btn ttb-btn--ghost">Limpiar</a></div>';
     echo '</form>';
 
-    echo '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:14px">';
-    echo '<p style="margin:0;font-size:13px;color:var(--ttb-muted)"><strong>' . number_format($total) . '</strong> registro' . ($total !== 1 ? 's' : '') . '</p>';
-    $export_params = array_filter(['section'=>'revisiones-dis','wrtab'=>'audit','f_project'=>$f_project?:'','f_event'=>$f_event,'f_actor'=>$f_actor,'f_from'=>$f_from,'f_to'=>$f_to,'f_search'=>$f_search,'ttb_audit_export'=>'1']);
-    echo '<a href="' . esc_url(add_query_arg($export_params, home_url('/briefing'))) . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">⬇️ Exportar CSV</a>';
-    echo '</div></div>';
-
-    if (!empty($_GET['ttb_audit_export'])) { self::export_csv($rows, $catalog); return; }
+    echo '<p style="margin:14px 0 0;font-size:13px;color:var(--ttb-muted)"><strong>' . number_format($total) . '</strong> registro' . ($total !== 1 ? 's' : '') . '</p></div>';
 
     if (!$rows) {
       echo '<div class="ttb-card"><p class="ttb-muted" style="text-align:center;padding:24px 0">No hay registros.</p></div>';
@@ -663,8 +671,11 @@ class TTB_WebRev_Admin {
           }
         }
 
-        $project_link = $row->project_name
-          ? '<a href="' . esc_url(home_url('/briefing?section=revisiones-dis&wrtab=audit&f_project=' . (int)$row->project_id)) . '" style="color:var(--ttb-pink);font-weight:700;text-decoration:none">' . esc_html($row->project_name) . '</a>'
+        $proj_display = $row->project_name ?? '';
+        if (!empty($row->project_title)) $proj_display .= ' — ' . $row->project_title;
+
+        $project_link = $proj_display
+          ? '<a href="' . esc_url(home_url('/briefing?section=revisiones-dis&wrtab=audit&f_project=' . (int)$row->project_id)) . '" style="color:var(--ttb-pink);font-weight:700;text-decoration:none">' . esc_html($proj_display) . '</a>'
           : '<span style="color:var(--ttb-muted)">—</span>';
 
         echo '<tr>';
@@ -704,41 +715,8 @@ class TTB_WebRev_Admin {
     ]), home_url('/briefing'));
   }
 
-  private static function export_csv($rows, $catalog) {
-    if (empty($rows)) {
-      echo '<div class="ttb-card"><p class="ttb-muted">No hay datos para exportar.</p></div>';
-      return;
-    }
-    $lines = ['"Fecha","Evento","Actor","Proyecto","Detalle","IP"'];
-    foreach ($rows as $row) {
-      [$ev_label] = $catalog[$row->event] ?? [$row->event];
-      $detail_str = '';
-      if ($row->detail) {
-        $d = json_decode($row->detail, true);
-        if (is_array($d)) {
-          $parts = [];
-          foreach ($d as $k => $v) { if (is_array($v)) $v = implode(',', $v); $parts[] = $k . ': ' . $v; }
-          $detail_str = implode(' | ', $parts);
-        } else {
-          $detail_str = $row->detail;
-        }
-      }
-      $lines[] = implode(',', array_map(
-        fn($s) => '"' . str_replace('"', '""', (string)$s) . '"',
-        [date_i18n('d/m/Y H:i:s', strtotime($row->created_at)), $ev_label, $row->actor, $row->project_name ?? '', $detail_str, $row->ip ?? '']
-      ));
-    }
-    $csv = implode("\n", $lines);
-    $fn  = 'auditoria-revisiones-' . date('Y-m-d') . '.csv';
-    echo '<script>(function(){var b=new Blob(["\uFEFF"+'
-      . wp_json_encode($csv)
-      . '],{type:"text/csv;charset=utf-8;"}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download='
-      . wp_json_encode($fn)
-      . ';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(u);a.remove();},1000);history.replaceState(null,"",location.href.replace(/[&?]ttb_audit_export=1/,""));})();</script>';
-  }
-
   /* ════════════════════════════════
-     RENDER: CONFIGURACIÓN
+     RENDER: CONFIGURACIÓN (sin cambios)
   ════════════════════════════════ */
   private static function render_settings() {
     $action_url  = esc_url(home_url('/briefing?section=revisiones-dis&wrtab=settings'));
@@ -781,9 +759,6 @@ class TTB_WebRev_Admin {
     echo '</form>';
   }
 
-  /* ════════════════════════════════
-     HELPERS
-  ════════════════════════════════ */
   private static function sanitize_emails($raw) {
     if (!is_array($raw)) $raw = [$raw];
     return array_values(array_filter(

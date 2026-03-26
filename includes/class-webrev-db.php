@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) exit;
  */
 class TTB_WebRev_DB {
 
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3; // v3: añade columna title
 
   public static function projects_table() {
     global $wpdb;
@@ -36,6 +36,7 @@ class TTB_WebRev_DB {
     $sql1 = "CREATE TABLE $projects (
       id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name            VARCHAR(190) NOT NULL,
+      title           VARCHAR(255) NULL,
       emails          LONGTEXT NOT NULL,
       figma_url       TEXT NOT NULL,
       figma_url_mobile TEXT NULL,
@@ -83,8 +84,8 @@ class TTB_WebRev_DB {
     dbDelta($sql2);
     dbDelta($sql3);
 
-    // Migración: añadir figma_url_mobile si no existe
     self::migrate_v2();
+    self::migrate_v3();
 
     update_option('ttb_webrev_schema_version', self::SCHEMA_VERSION);
   }
@@ -92,20 +93,25 @@ class TTB_WebRev_DB {
   private static function migrate_v2() {
     global $wpdb;
     $table = self::projects_table();
-
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
     if (!$table_exists) return;
-
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'figma_url_mobile'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `figma_url_mobile` TEXT NULL AFTER `figma_url`");
     }
   }
 
-  /**
-   * Ejecuta migraciones si la versión almacenada es inferior a la actual.
-   * Llamar desde plugins_loaded para cubrir actualizaciones sin reactivar el plugin.
-   */
+  private static function migrate_v3() {
+    global $wpdb;
+    $table = self::projects_table();
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) return;
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'title'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `title` VARCHAR(255) NULL AFTER `name`");
+    }
+  }
+
   public static function run_migrations() {
     $current = (int) get_option('ttb_webrev_schema_version', 0);
     if ($current >= self::SCHEMA_VERSION) return;
@@ -125,6 +131,19 @@ class TTB_WebRev_DB {
     $table = self::projects_table();
     return $wpdb->get_row($wpdb->prepare(
       "SELECT * FROM $table WHERE token = %s LIMIT 1", sanitize_text_field($token)
+    ));
+  }
+
+  /**
+   * Obtiene todos los proyectos de diseño vinculados a un cliente por nombre.
+   * Devuelve el más reciente primero.
+   */
+  public static function get_projects_by_client_name($name) {
+    global $wpdb;
+    $table = self::projects_table();
+    return $wpdb->get_results($wpdb->prepare(
+      "SELECT * FROM $table WHERE name = %s ORDER BY created_at DESC",
+      $name
     ));
   }
 

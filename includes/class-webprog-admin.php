@@ -21,10 +21,26 @@ class TTB_WebProg_Admin {
     ];
   }
 
-  private static function flash_and_redirect($type, $text, $url = null) {
+    private static function flash_and_redirect($type, $text, $url = null) {
     set_transient('ttb_webprog_admin_flash', ['type' => $type, 'text' => $text], 60);
     if (!$url) $url = home_url('/briefing?section=revisiones-web&wptab=projects');
-    wp_safe_redirect($url);
+ 
+    // Limpiar TODOS los niveles del output buffer
+    while (ob_get_level() > 0) {
+      ob_end_clean();
+    }
+ 
+    if (!headers_sent()) {
+      header('Location: ' . esc_url_raw($url), true, 302);
+      exit;
+    }
+ 
+    // Fallback: si los headers ya fueron enviados, usar JS redirect
+    echo '<!DOCTYPE html><html><head>';
+    echo '<meta http-equiv="refresh" content="0;url=' . esc_attr($url) . '">';
+    echo '</head><body>';
+    echo '<script>window.location.replace(' . wp_json_encode($url) . ');</script>';
+    echo '</body></html>';
     exit;
   }
 
@@ -82,6 +98,7 @@ class TTB_WebProg_Admin {
 
     $central_client_id = (int)($_POST['wp_client_id'] ?? 0);
     $web_url           = esc_url_raw($_POST['wp_weburl'] ?? '');
+    $title             = sanitize_text_field($_POST['wp_title'] ?? '');
 
     if (!$central_client_id || !$web_url) {
       self::flash_and_redirect('error', 'Selecciona un cliente y proporciona la URL de la web.',
@@ -106,6 +123,7 @@ class TTB_WebProg_Admin {
 
     $wpdb->insert($table, [
       'name'          => $name,
+      'title'         => $title ?: null,
       'emails'        => wp_json_encode(array_values($emails)),
       'web_url'       => $web_url,
       'token'         => $token,
@@ -135,6 +153,7 @@ class TTB_WebProg_Admin {
 
     $id      = (int)($_POST['wp_id']    ?? 0);
     $name    = sanitize_text_field($_POST['wp_name']   ?? '');
+    $title   = sanitize_text_field($_POST['wp_title']  ?? '');
     $emails  = self::sanitize_emails($_POST['wp_emails'] ?? []);
     $web_url = esc_url_raw($_POST['wp_weburl'] ?? '');
 
@@ -146,6 +165,7 @@ class TTB_WebProg_Admin {
     global $wpdb;
     $wpdb->update(TTB_WebProg_DB::projects_table(), [
       'name'       => $name,
+      'title'      => $title ?: null,
       'emails'     => wp_json_encode(array_values($emails)),
       'web_url'    => $web_url,
       'updated_at' => TTB_WebProg_DB::now(),
@@ -255,6 +275,12 @@ class TTB_WebProg_Admin {
     echo '</small></div>';
 
     echo '<div>';
+    echo '<label>Título del proyecto <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
+    echo '<input class="ttb-input" type="text" name="wp_title" placeholder="Ej: Web Corporativa, Landing Black Friday...">';
+    echo '<small class="ttb-muted" style="display:block;margin-top:4px">Se mostrará al cliente para identificar el proyecto.</small>';
+    echo '</div>';
+ 
+    echo '<div>';
     echo '<label>URL de la web programada <span class="ttb-required">*</span></label>';
     echo '<input class="ttb-input" type="url" name="wp_weburl" required placeholder="https://cliente.com">';
     echo '</div>';
@@ -276,11 +302,16 @@ class TTB_WebProg_Admin {
       echo '<input type="hidden" name="wp_id" value="' . (int)$edit_p->id . '">';
 
       echo '<div class="ttb-grid2">';
-      echo '<div><label>Nombre del cliente</label>';
-      echo '<input class="ttb-input" type="text" name="wp_name" value="' . esc_attr($edit_p->name) . '" required></div>';
-      echo '<div><label>URL de la web</label>';
-      echo '<input class="ttb-input" type="url" name="wp_weburl" value="' . esc_attr($edit_p->web_url) . '" required></div>';
-      echo '</div>';
+    echo '<div><label>Nombre del cliente</label>';
+    echo '<input class="ttb-input" type="text" name="wp_name" value="' . esc_attr($edit_p->name) . '" required></div>';
+    echo '<div><label>URL de la web</label>';
+    echo '<input class="ttb-input" type="url" name="wp_weburl" value="' . esc_attr($edit_p->web_url) . '" required></div>';
+    echo '</div>';
+ 
+    echo '<div style="margin-top:10px">';
+    echo '<label>Título del proyecto <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
+    echo '<input class="ttb-input" type="text" name="wp_title" value="' . esc_attr($edit_p->title ?? '') . '" placeholder="Ej: Web Corporativa, Landing...">';
+    echo '</div>';
 
       echo '<div style="margin-top:12px"><label>Emails del cliente</label>';
       echo '<div id="ttb-wp-emails-edit" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">';
@@ -325,7 +356,7 @@ class TTB_WebProg_Admin {
     ];
 
     echo '<div class="ttb-tablewrap"><table class="ttb-table"><thead><tr>';
-    echo '<th>Cliente</th><th>Emails</th><th>Web</th><th>Estado</th><th>Fecha subida</th><th>Avisos</th><th>Últ. aviso</th><th>Acciones</th>';
+    echo '<th>Cliente</th><th>Título</th><th>Emails</th><th>Web</th><th>Estado</th><th>Fecha subida</th><th>Avisos</th><th>Últ. aviso</th><th>Acciones</th>';
     echo '</tr></thead><tbody>';
 
     foreach ($projects as $p) {
@@ -339,8 +370,10 @@ class TTB_WebProg_Admin {
       $last_n     = $p->last_notified ? date_i18n('d/m/Y', strtotime($p->last_notified)) : '—';
       $web_short  = strlen($p->web_url) > 40 ? substr($p->web_url, 0, 40) . '…' : $p->web_url;
 
+      $proj_title = !empty($p->title) ? esc_html($p->title) : '<span style="color:var(--ttb-muted);font-style:italic">Sin título</span>';
       echo '<tr>';
       echo '<td><strong>' . esc_html($p->name) . '</strong></td>';
+      echo '<td style="font-size:13px">' . $proj_title . '</td>';
       echo '<td style="font-size:13px">' . $emails_str . '</td>';
       echo '<td style="font-size:12px"><a href="' . esc_url($p->web_url) . '" target="_blank" style="color:var(--ttb-pink)">' . esc_html($web_short) . '</a></td>';
       echo '<td><span class="ttb-status ' . $sc . '">' . esc_html($sl) . '</span></td>';
@@ -385,12 +418,13 @@ class TTB_WebProg_Admin {
     echo '</tbody></table></div></div>';
   }
 
-  private static function render_revisions() {
+private static function render_revisions() {
     global $wpdb;
     $projects_table  = TTB_WebProg_DB::projects_table();
     $revisions_table = TTB_WebProg_DB::revisions_table();
 
-    $projects = $wpdb->get_results("SELECT id, name FROM $projects_table ORDER BY name ASC LIMIT 200");
+    // FIX: añadir title a la query
+    $projects = $wpdb->get_results("SELECT id, name, title FROM $projects_table ORDER BY name ASC LIMIT 200");
     $pid      = (int)($_GET['project'] ?? 0);
 
     echo '<div class="ttb-card"><h3>Revisiones de programación web</h3>';
@@ -398,10 +432,14 @@ class TTB_WebProg_Admin {
     echo '<form method="get" action="' . esc_url(home_url('/briefing')) . '" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">';
     echo '<input type="hidden" name="section" value="revisiones-web">';
     echo '<input type="hidden" name="wptab" value="revisions">';
-    echo '<select name="project" class="ttb-input" style="max-width:300px">';
+    // FIX: select más ancho para acomodar el título
+    echo '<select name="project" class="ttb-input" style="max-width:360px">';
     echo '<option value="">— Selecciona proyecto —</option>';
     foreach ($projects as $p) {
-      echo '<option value="' . (int)$p->id . '" ' . selected($pid, $p->id, false) . '>' . esc_html($p->name) . '</option>';
+      // FIX: mostrar título en el option si existe
+      $label = $p->name;
+      if (!empty($p->title)) $label .= ' — ' . $p->title;
+      echo '<option value="' . (int)$p->id . '" ' . selected($pid, $p->id, false) . '>' . esc_html($label) . '</option>';
     }
     echo '</select>';
     echo '<button class="ttb-btn ttb-btn--ghost" type="submit">Ver</button>';
@@ -416,8 +454,12 @@ class TTB_WebProg_Admin {
       "SELECT * FROM $revisions_table WHERE project_id=%d ORDER BY created_at DESC", $pid
     ));
 
+    // FIX: mostrar título en el h3 si existe
+    $project_display = $project->name;
+    if (!empty($project->title)) $project_display .= ' — ' . $project->title;
+
     echo '<div class="ttb-card">';
-    echo '<h3>' . esc_html($project->name) . '</h3>';
+    echo '<h3>' . esc_html($project_display) . '</h3>';
     echo '<p class="ttb-muted">';
     echo '<a href="' . esc_url($project->web_url) . '" target="_blank">🌐 Ver web</a>';
     echo ' &nbsp;·&nbsp; <a href="' . esc_url(TTB_WebProg_DB::client_url($project->token)) . '" target="_blank">👁️ Ver como cliente</a>';

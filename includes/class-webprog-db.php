@@ -8,8 +8,7 @@ if (class_exists('TTB_WebProg_DB')) return;
  */
 class TTB_WebProg_DB {
 
-  /** Versión interna de esquema — incrementar cuando haya nuevas migraciones */
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3; // v3: añade columna title
 
   public static function projects_table() {
     global $wpdb;
@@ -26,12 +25,6 @@ class TTB_WebProg_DB {
     return $wpdb->prefix . 'ttb_webprog_audit';
   }
 
-  /**
-   * Crea las tablas (idempotente via dbDelta) y aplica migraciones pendientes.
-   * Se llama tanto desde activate() como desde plugins_loaded (con guard de versión)
-   * para garantizar que migraciones como go_live_date se apliquen aunque el plugin
-   * ya estuviera activo cuando se subió la nueva versión del código.
-   */
   public static function create_tables() {
     global $wpdb;
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -44,6 +37,7 @@ class TTB_WebProg_DB {
     $sql1 = "CREATE TABLE $projects (
       id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name          VARCHAR(190) NOT NULL,
+      title         VARCHAR(255) NULL,
       emails        LONGTEXT NOT NULL,
       web_url       TEXT NOT NULL,
       token         VARCHAR(64) NOT NULL,
@@ -91,35 +85,34 @@ class TTB_WebProg_DB {
     dbDelta($sql2);
     dbDelta($sql3);
 
-    // Migración v2: añadir go_live_date si no existe
     self::migrate_v2();
+    self::migrate_v3();
 
-    // Guardar versión aplicada
     update_option('ttb_webprog_schema_version', self::SCHEMA_VERSION);
   }
 
-  /**
-   * Migración v2: columna go_live_date en ttb_webprog_projects.
-   * Seguro de llamar varias veces — solo actúa si la columna no existe.
-   */
   private static function migrate_v2() {
     global $wpdb;
     $table = self::projects_table();
-
-    // Comprobar que la tabla existe antes de intentar añadir columna
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
     if (!$table_exists) return;
-
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'go_live_date'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `go_live_date` DATE NULL AFTER `status`");
     }
   }
 
-  /**
-   * Ejecuta migraciones pendientes si la versión almacenada es inferior a la actual.
-   * Llamar desde plugins_loaded para cubrir actualizaciones sin desactivar el plugin.
-   */
+  private static function migrate_v3() {
+    global $wpdb;
+    $table = self::projects_table();
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) return;
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'title'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `title` VARCHAR(255) NULL AFTER `name`");
+    }
+  }
+
   public static function run_migrations() {
     $current = (int) get_option('ttb_webprog_schema_version', 0);
     if ($current >= self::SCHEMA_VERSION) return;
@@ -143,13 +136,23 @@ class TTB_WebProg_DB {
     ));
   }
 
+  /**
+   * Obtiene todos los proyectos web vinculados a un cliente por nombre.
+   * Devuelve el más reciente primero.
+   */
+  public static function get_projects_by_client_name($name) {
+    global $wpdb;
+    $table = self::projects_table();
+    return $wpdb->get_results($wpdb->prepare(
+      "SELECT * FROM $table WHERE name = %s ORDER BY created_at DESC",
+      $name
+    ));
+  }
+
   public static function client_url($token) {
     return home_url('/briefing?webprog=' . urlencode($token));
   }
 
-  /**
-   * Formatea go_live_date en español largo: "martes, 31 de marzo de 2026"
-   */
   public static function format_go_live($date_str) {
     if (!$date_str) return null;
     $ts = strtotime($date_str);
