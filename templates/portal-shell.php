@@ -61,8 +61,6 @@ $webprog_entry = sanitize_text_field($_GET['ttb_webprog_entry'] ?? '');
 if ($webprog_entry) {
   ttb_smart_entry_redirect($auth, $webprog_entry, 'web', 'webprog', function($token) {
     global $wpdb;
-    // webprog proyectos guardan emails pero no tienen ttb_client_id directo.
-    // Buscamos por nombre exacto en la tabla central.
     $project = $wpdb->get_row($wpdb->prepare(
       "SELECT name FROM " . TTB_WebProg_DB::projects_table() . " WHERE token=%s LIMIT 1", $token
     ));
@@ -163,8 +161,25 @@ nocache_headers();
 
 <?php
 // ── Acciones POST de módulos inline ───────────────────────────────────
+//
+// IMPORTANTE — POR QUÉ SOLO SE MANEJA SOCIAL AQUÍ:
+//
+// WebRev y WebProg NO se interceptan en este bloque porque sus clases
+// (TTB_WebRev_Client y TTB_WebProg_Client) tienen un flag estático
+// $submitted que garantiza ejecución única de handle_submit().
+// Si interceptáramos aquí Y también en su render(), se ejecutaría DOS veces,
+// provocando revisiones duplicadas y doble envío de email.
+//
+// El flujo correcto para webrev/webprog es:
+//   1. fetch() desde el cliente → POST a /briefing?ctab=design (o web)
+//   2. portal-shell carga, no intercepta webrev/webprog
+//   3. Se incluye templates/client.php → TTB_Client_UI::render()
+//   4. TTB_Client_UI llama TTB_WebRev_Client::render($token)
+//   5. render() detecta el POST, llama handle_submit() una sola vez, redirect.
+//
 if ($auth->is_client() && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
+  // Social: procesamos aquí porque su render() hace exit directo sin duplicar
   if (isset($_POST['ttb_social_action'])) {
     $social_token = sanitize_text_field($_POST['ttb_social_token'] ?? '');
     if ($social_token) {
@@ -174,25 +189,8 @@ if ($auth->is_client() && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 
-  if (isset($_POST['ttb_webrev_action'])) {
-    $webrev_token = sanitize_text_field($_POST['ttb_webrev_token'] ?? '');
-    if ($webrev_token) {
-      $project = TTB_WebRev_DB::get_project_by_token($webrev_token);
-      if ($project) {
-        $_GET['webrev'] = $webrev_token;
-        TTB_WebRev_Client::render($webrev_token);
-        exit;
-      }
-    }
-  }
-
-  if (isset($_POST['ttb_webprog_action'])) {
-    $webprog_token = sanitize_text_field($_POST['ttb_webprog_token'] ?? '');
-    if ($webprog_token) {
-      TTB_WebProg_Client::render($webprog_token);
-      exit;
-    }
-  }
+  // WebRev y WebProg: NO interceptar aquí.
+  // Sus clases gestionan el POST internamente con flag $submitted.
 }
 // ─────────────────────────────────────────────────────────────────────
 
@@ -213,23 +211,25 @@ if ($auth->is_client()) {
   if ($modal_svc) {
     $modal_titles = [
       'es' => [
-        'design' => 'Prebriefing de Diseño enviado',
-        'social' => 'Prebriefing de Redes enviado',
-        'seo'    => 'Prebriefing SEO enviado',
-        'web'    => 'Prebriefing Web enviado',
+        'design'   => 'Prebriefing de Diseño enviado',
+        'social'   => 'Prebriefing de Redes enviado',
+        'seo'      => 'Prebriefing SEO enviado',
+        'web'      => 'Prebriefing Web enviado',
+        'reservas' => 'Prebriefing Reservas enviado',
       ],
       'en' => [
-        'design' => 'Design Pre-briefing submitted',
-        'social' => 'Social Media Pre-briefing submitted',
-        'seo'    => 'SEO Pre-briefing submitted',
-        'web'    => 'Web Pre-briefing submitted',
+        'design'   => 'Design Pre-briefing submitted',
+        'social'   => 'Social Media Pre-briefing submitted',
+        'seo'      => 'SEO Pre-briefing submitted',
+        'web'      => 'Web Pre-briefing submitted',
+        'reservas' => 'Reservations Pre-briefing submitted',
       ],
     ];
     $modal_subs   = [
-      'es' => ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web'],
-      'en' => ['design' => 'Design', 'social' => 'Social Media',   'seo' => 'SEO', 'web' => 'Web'],
+      'es' => ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web', 'reservas' => 'Reservas'],
+      'en' => ['design' => 'Design', 'social' => 'Social Media',   'seo' => 'SEO', 'web' => 'Web', 'reservas' => 'Reservations'],
     ];
-    $modal_emojis = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐'];
+    $modal_emojis = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐', 'reservas' => '🍽️'];
     $modal_msgs   = [
       'es' => 'Nuestro equipo lo revisará y se pondrá en contacto contigo muy pronto. ¡Gracias por confiar en TicTac!',
       'en' => 'Our team will review it and get in touch with you very soon. Thank you for trusting TicTac!',

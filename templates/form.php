@@ -109,6 +109,16 @@ $form_id = 'ttb-form-' . esc_attr($svc);
   color: var(--ttb-pink);
   letter-spacing: 0.02em;
 }
+
+/* ── Multicheck pills ── */
+.ttb-multicheck-pill {
+  transition: background .15s, border-color .15s, color .15s !important;
+}
+.ttb-multicheck-pill:hover {
+  border-color: rgba(215,33,115,.35) !important;
+  color: var(--ttb-pink) !important;
+  background: rgba(215,33,115,.05) !important;
+}
 </style>
 
 <?php if (!defined('TTB_OVERLAY_RENDERED')): define('TTB_OVERLAY_RENDERED', true); ?>
@@ -199,6 +209,60 @@ $form_id = 'ttb-form-' . esc_attr($svc);
               <?php endforeach; ?>
             </select>
 
+          <?php elseif ($type === 'multicheck'): ?>
+            <?php
+              // Normalizar el valor guardado: puede ser array, string CSV o string JSON
+              if (is_array($val)) {
+                $checked_vals = $val;
+              } elseif (is_string($val) && $val !== '') {
+                $decoded = json_decode($val, true);
+                $checked_vals = is_array($decoded) ? $decoded : array_map('trim', explode(',', $val));
+              } else {
+                $checked_vals = [];
+              }
+            ?>
+            <div
+              class="ttb-multicheck<?php echo $err ? ' ttb-input--invalid' : ''; ?>"
+              style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 2px;"
+              aria-describedby="<?php echo $err ? 'err_' . esc_attr($id) : ''; ?>"
+              role="group"
+              aria-labelledby="label_<?php echo esc_attr($id); ?>"
+            >
+              <?php foreach ((array)$options as $opt): ?>
+                <?php $is_checked = in_array((string)$opt, array_map('strval', $checked_vals), true); ?>
+                <label
+                  class="ttb-multicheck-pill"
+                  style="
+                    display:inline-flex;
+                    align-items:center;
+                    gap:7px;
+                    cursor:pointer;
+                    background:<?php echo $is_checked ? 'rgba(215,33,115,.10)' : '#fff'; ?>;
+                    border:1.5px solid <?php echo $is_checked ? 'rgba(215,33,115,.40)' : 'var(--ttb-border)'; ?>;
+                    border-radius:999px;
+                    padding:7px 16px;
+                    font-size:13px;
+                    font-weight:700;
+                    color:<?php echo $is_checked ? 'var(--ttb-pink)' : 'var(--ttb-muted)'; ?>;
+                    user-select:none;
+                  "
+                >
+                  <input
+                    type="checkbox"
+                    name="f[<?php echo esc_attr($id); ?>][]"
+                    value="<?php echo esc_attr($opt); ?>"
+                    <?php checked($is_checked); ?>
+                    style="display:none;"
+                    class="ttb-multicheck-input"
+                  >
+                  <?php echo esc_html($opt); ?>
+                </label>
+              <?php endforeach; ?>
+            </div>
+            <p style="font-size:12px;color:var(--ttb-muted);margin:4px 0 0;">
+              <?php echo $lang === 'en' ? 'You can select multiple options.' : 'Puedes seleccionar varias opciones.'; ?>
+            </p>
+
           <?php else: ?>
             <input
               id="ttbf_<?php echo esc_attr($id); ?>"
@@ -237,6 +301,7 @@ $form_id = 'ttb-form-' . esc_attr($svc);
 
 <script>
 (function() {
+  // ── Collapse / expand ──────────────────────────────────────
   document.querySelectorAll('.ttb-collapse-btn').forEach(function(btn) {
     if (btn._ttbInit) return;
     btn._ttbInit = true;
@@ -270,6 +335,36 @@ $form_id = 'ttb-form-' . esc_attr($svc);
     });
   });
 
+  // ── Multicheck: toggle visual al hacer clic en la píldora ──
+  document.querySelectorAll('.ttb-multicheck').forEach(function(container) {
+    container.querySelectorAll('.ttb-multicheck-pill').forEach(function(pill) {
+      var input = pill.querySelector('.ttb-multicheck-input');
+      if (!input) return;
+
+      function syncStyle() {
+        if (input.checked) {
+          pill.style.background    = 'rgba(215,33,115,.10)';
+          pill.style.borderColor   = 'rgba(215,33,115,.40)';
+          pill.style.color         = 'var(--ttb-pink)';
+        } else {
+          pill.style.background    = '#fff';
+          pill.style.borderColor   = 'var(--ttb-border)';
+          pill.style.color         = 'var(--ttb-muted)';
+        }
+      }
+
+      // Sincronizar estado inicial (por si el PHP ya lo marcó)
+      syncStyle();
+
+      pill.addEventListener('click', function(e) {
+        // El click en el label ya activa el checkbox nativo;
+        // solo actualizamos el estilo visual tras el cambio.
+        setTimeout(syncStyle, 0);
+      });
+    });
+  });
+
+  // ── Spinner de envío ───────────────────────────────────────
   var overlay = document.getElementById('ttbSendingOverlay');
   var overlayLabel = document.getElementById('ttbSendingLabel');
 
