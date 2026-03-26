@@ -20,13 +20,19 @@ class TTB_Clients_UI {
   private static function flash_and_redirect($type, $text, $url = null) {
     set_transient('ttb_admin_flash', ['type' => $type, 'text' => $text], 60);
     if (!$url) $url = home_url('/briefing?section=clientes');
-    wp_safe_redirect($url);
+    
+    // Limpiar cualquier output previo en el buffer
+    if (ob_get_level()) {
+        ob_end_clean();
+    }
+    
+    header('Location: ' . $url, true, 302);
     exit;
-  }
+}
 
   public static function render_and_handle_forms() {
-    // Hook point para el futuro.
-  }
+    // Hook point para el futuro. (vacío)
+}
 
   public static function render() {
     self::handle_create();
@@ -35,7 +41,7 @@ class TTB_Clients_UI {
     self::handle_resend();
     self::render_create_form();
     self::render_list();
-  }
+}
 
   /* ════════════════════════════════════════
      ACCIONES POST
