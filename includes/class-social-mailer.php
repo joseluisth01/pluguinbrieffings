@@ -10,7 +10,8 @@ class TTB_Social_Mailer {
   public function send_welcome($client) {
     $emails = $this->parse_emails($client->emails);
     if (!$emails) return;
-    $url     = TTB_Social_DB::client_url($client->token);
+    // URL inteligente: si tiene sesión → ctab=social; si no → portal token
+    $url     = $this->smart_url($client->token);
     $subject = 'Tu portal de Redes Sociales está listo — TicTac Comunicación';
     $message = $this->tpl_welcome($client->name, $url);
     $headers = ['Content-Type: text/html; charset=UTF-8'];
@@ -20,7 +21,8 @@ class TTB_Social_Mailer {
   public function send_post_approval($client, $post) {
     $emails = $this->parse_emails($client->emails);
     if (!$emails) return;
-    $url            = TTB_Social_DB::client_url($client->token);
+    // URL inteligente: si tiene sesión → ctab=social; si no → portal token
+    $url            = $this->smart_url($client->token);
     $date_formatted = date_i18n('l, j \d\e F \d\e Y', strtotime($post->scheduled_date));
     $subject        = 'Creatividad lista para revisar — ' . $date_formatted . ' — TicTac Comunicación';
     $message        = $this->tpl_approval($client->name, $url, $post, $date_formatted);
@@ -59,6 +61,17 @@ class TTB_Social_Mailer {
     $decoded = json_decode($raw, true);
     if (is_array($decoded)) return array_filter($decoded, 'is_email');
     return array_filter(array_map('trim', explode(',', (string)$raw)), 'is_email');
+  }
+
+  /**
+   * Genera la URL inteligente para los emails al cliente.
+   * Usa ?ttb_social_entry=TOKEN — el portal principal detecta este parámetro:
+   *   - Si el usuario tiene sesión activa → redirige a ctab=social (portal con pestañas)
+   *   - Si no tiene sesión               → redirige a ?social=TOKEN (portal independiente de token)
+   * Así el cliente siempre llega al sitio correcto sin importar si está logueado o no.
+   */
+  private function smart_url($token) {
+    return home_url('/briefing?ttb_social_entry=' . urlencode($token));
   }
 
   private function internal_emails() {
@@ -114,9 +127,9 @@ class TTB_Social_Mailer {
       <p style="margin:0 0 22px;font-size:15px;color:#4b5563;line-height:1.6">Hemos creado tu espacio para gestionar las redes sociales con TicTac. Desde aqu&iacute; podr&aacute;s:</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:12px;margin-bottom:24px">
         <tr><td style="padding:18px 20px">
-          <p style="margin:0 0 8px;font-size:14px;color:#4b5563;line-height:1.5">Subir fotos y v&iacute;deos para tus publicaciones.</p>
-          <p style="margin:0 0 8px;font-size:14px;color:#4b5563;line-height:1.5">Ver el calendario con las publicaciones programadas.</p>
-          <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">Aprobar o pedir cambios en las creatividades antes de publicarlas.</p>
+          <p style="margin:0 0 8px;font-size:14px;color:#4b5563;line-height:1.5">&#x2714;&#xFE0F;&nbsp; Subir fotos y v&iacute;deos para tus publicaciones.</p>
+          <p style="margin:0 0 8px;font-size:14px;color:#4b5563;line-height:1.5">&#x2714;&#xFE0F;&nbsp; Ver el calendario con las publicaciones programadas.</p>
+          <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">&#x2714;&#xFE0F;&nbsp; Aprobar o pedir cambios en las creatividades antes de publicarlas.</p>
         </td></tr>
       </table>
       <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px">
@@ -143,15 +156,12 @@ class TTB_Social_Mailer {
     $header = '<h1 style="margin:0 0 6px;color:#fff;font-size:20px;font-weight:900">Creatividad lista para revisar</h1>
                <p style="margin:0;color:rgba(255,255,255,.85);font-size:14px">' . esc_html($date_formatted) . '</p>';
 
-    // Bloque de creatividad según tipo
     $creative_html = '';
     if ($post->creative_url) {
       if ($is_video) {
-        // Para vídeos en email: no podemos embeber video HTML (mayoría de clientes de email no lo soportan)
-        // Mostramos un bloque CTA claro con enlace al portal
         $creative_html = '
           <div style="border-radius:12px;overflow:hidden;margin-bottom:20px;background:#1a1a2e;padding:32px 24px;text-align:center">
-            <p style="margin:0 0 8px;font-size:36px">🎬</p>
+            <p style="margin:0 0 8px;font-size:36px">&#x1F3AC;</p>
             <p style="margin:0 0 6px;font-size:16px;font-weight:900;color:#fff">Creatividad en v&iacute;deo</p>
             <p style="margin:0 0 16px;font-size:13px;color:rgba(255,255,255,.7)">Accede al portal para reproducir y revisar el v&iacute;deo</p>
             <a href="' . esc_url($url) . '" target="_blank" rel="noopener"
@@ -218,12 +228,11 @@ class TTB_Social_Mailer {
     $header = '<h1 style="margin:0;color:#fff;font-size:20px;font-weight:900">Post aprobado</h1>';
     $body = '
       <div style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:14px;padding:18px 22px;margin-bottom:20px">
-        <p style="margin:0 0 4px;font-size:18px;font-weight:900;color:#065f46">El cliente ha dado el visto bueno</p>
+        <p style="margin:0 0 4px;font-size:18px;font-weight:900;color:#065f46">&#x2705; &iexcl;El cliente ha dado el visto bueno!</p>
         <p style="margin:0;font-size:14px;color:#047857">Ya puedes programar la publicaci&oacute;n.</p>
       </div>
       <div style="background:#f9fafb;border-radius:12px;padding:16px 20px;margin-bottom:20px">
-        <p style="margin:0 0 6px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase">Datos</p>
-        <p style="margin:0 0 4px;font-size:14px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($client->name) . '</p>
+        <p style="margin:0 0 6px;font-size:14px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($client->name) . '</p>
         <p style="margin:0;font-size:14px;color:#1a1a2e"><strong>Fecha programada:</strong> ' . esc_html($date) . '</p>
       </div>
       <table width="100%" cellpadding="0" cellspacing="0">

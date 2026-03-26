@@ -37,12 +37,10 @@ class TTB_Auth {
       exit;
     }
 
-    // FIX Error 4: autologin por URL: /briefing?ttb_u=usuario&ttb_p=contraseña
-    // La contraseña viene URL-encoded, PHP la decodifica automáticamente en $_GET
+    // Autologin por URL: /briefing?ttb_u=usuario&ttb_p=contraseña
+    // Preserva cualquier parámetro extra como ctab, stab, filter_month, etc.
     if (isset($_GET['ttb_u'], $_GET['ttb_p'])) {
       $u = sanitize_text_field($_GET['ttb_u']);
-      // FIX: NO sanitizar la contraseña con sanitize_text_field porque puede
-      // contener caracteres que se eliminarían. Usar el valor raw decodificado.
       $p = wp_unslash((string)$_GET['ttb_p']);
 
       $admin_user = (string)get_option('ttb_admin_user', 'tictac');
@@ -57,7 +55,9 @@ class TTB_Auth {
 
         if ($admin_hash && password_verify($p, $admin_hash)) {
           $this->set_session(['role' => 'admin', 'client_id' => 0]);
-          wp_safe_redirect(home_url('/briefing'));
+          // Preservar parámetros extra tras login de admin
+          $redirect = $this->build_redirect_after_login();
+          wp_safe_redirect($redirect);
           exit;
         }
       }
@@ -65,17 +65,19 @@ class TTB_Auth {
       $client = $this->get_client_by_username($u);
       if ($client && password_verify($p, $client->pass_hash)) {
         $this->set_session(['role' => 'client', 'client_id' => (int)$client->id]);
-        wp_safe_redirect(home_url('/briefing'));
+        // Preservar parámetros extra (ctab, stab, filter_month, etc.)
+        $redirect = $this->build_redirect_after_login();
+        wp_safe_redirect($redirect);
         exit;
       }
 
-      // Autologin fallido: log para debug
+      // Autologin fallido
       TTB_Logger::log('Autologin failed', ['username' => $u]);
       wp_safe_redirect(home_url('/briefing'));
       exit;
     }
 
-    // login submit por formulario
+    // Login submit por formulario
     if (isset($_POST['ttb_login'])) {
       if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_login')) {
         TTB_Logger::log('Login nonce failed');
@@ -85,7 +87,6 @@ class TTB_Auth {
       }
 
       $u = sanitize_text_field($_POST['username'] ?? '');
-      // FIX: la contraseña del formulario tampoco debe sanitizarse agresivamente
       $p = wp_unslash((string)($_POST['password'] ?? ''));
 
       TTB_Logger::log('Login attempt', ['username' => $u]);
@@ -118,6 +119,33 @@ class TTB_Auth {
       wp_safe_redirect(home_url('/briefing'));
       exit;
     }
+  }
+
+  /**
+   * Construye la URL de redirección tras autologin preservando parámetros extra.
+   * Filtra ttb_u y ttb_p (credenciales) pero conserva ctab, stab, filter_month, etc.
+   */
+  private function build_redirect_after_login() {
+    // Parámetros que NO deben aparecer en la URL final (credenciales)
+    $remove = ['ttb_u', 'ttb_p'];
+
+    $params = $_GET;
+    foreach ($remove as $key) {
+      unset($params[$key]);
+    }
+
+    // Si no quedan parámetros útiles, ir a /briefing limpio
+    if (empty($params)) {
+      return home_url('/briefing');
+    }
+
+    // Sanitizar cada parámetro
+    $clean = [];
+    foreach ($params as $k => $v) {
+      $clean[sanitize_key($k)] = sanitize_text_field($v);
+    }
+
+    return home_url('/briefing?' . http_build_query($clean));
   }
 
   private function secret() {

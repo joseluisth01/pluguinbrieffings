@@ -338,26 +338,18 @@ class TTB_Client_UI {
           break;
 
         case 'social':
-          // El registro social existe desde la creación del cliente.
-          // Está "ready" cuando el admin haya enviado al menos un post
-          // (es decir, hay posts en la tabla social_posts para este cliente).
           $sc_client = $wpdb->get_row($wpdb->prepare(
             "SELECT id, token FROM " . TTB_Social_DB::clients_table() . " WHERE ttb_client_id=%d LIMIT 1",
             $client_id
           ));
           if ($sc_client) {
-            // Consideramos ready cuando el admin haya enviado alguna publicación o contenido
-            $has_activity = (int)$wpdb->get_var($wpdb->prepare(
-              "SELECT COUNT(*) FROM " . TTB_Social_DB::posts_table() . " WHERE client_id=%d",
+            $states[$svc]           = 'ready';
+            $states['social_token'] = $sc_client->token;
+            $has_posts = (int)$wpdb->get_var($wpdb->prepare(
+              "SELECT COUNT(*) FROM " . TTB_Social_DB::posts_table() . " WHERE client_id=%d AND status != 'draft'",
               (int)$sc_client->id
             ));
-            $states[$svc]           = $has_activity ? 'ready' : 'wip';
-            $states['social_token'] = $sc_client->token;
-            // Si hay actividad siempre mostramos el portal aunque sea wip
-            // (el cliente puede ver el calendario y subir contenido)
-            if (!$has_activity) {
-              // Aun así dejamos el token por si en el futuro queremos cambiar el umbral
-            }
+            $states['social_has_posts'] = $has_posts > 0;
           } else {
             $states[$svc] = 'wip';
           }
@@ -456,6 +448,32 @@ class TTB_Client_UI {
     echo '</div>';
   }
 
+
+
+  /* ════════════════════════════════════════════════════
+   PANEL: SOCIAL — portal activo pero sin posts aún
+════════════════════════════════════════════════════ */
+
+private static function render_social_waiting($t, $token, $lang) {
+  $wip_msg = [
+    'es' => 'Nuestro equipo de redes está elaborando tu estrategia de contenidos. En cuanto tengamos la primera publicación lista te avisaremos. Mientras tanto, puedes enviarnos fotos o ideas.',
+    'en' => 'Our social media team is developing your content strategy. As soon as the first publication is ready we will let you know. In the meantime, you can send us photos or ideas.',
+  ];
+  $btn_content = ['es' => 'Enviar contenido al equipo →', 'en' => 'Send content to the team →'];
+  $msg = $wip_msg[$lang] ?? $wip_msg['es'];
+  $btn = $btn_content[$lang] ?? $btn_content['es'];
+  $content_url = esc_url(home_url('/briefing?ctab=social&stab=content'));
+
+  echo '<div class="ttb-card">';
+  echo '<div class="ttbc-wip-box">';
+  echo '<span class="ttbc-wip-icon">⚙️</span>';
+  echo '<h3>' . esc_html($t['wip_title']) . '</h3>';
+  echo '<p>' . esc_html($msg) . '</p>';
+  echo '<div class="ttbc-progress"><div class="ttbc-progress-bar"></div></div>';
+  echo '<div style="margin-top:24px"><a href="' . $content_url . '" class="ttb-btn">' . esc_html($btn) . '</a></div>';
+  echo '</div></div>';
+}
+
   /* ════════════════════════════════════════════════════
      PANEL: MÓDULO LISTO — cargar portal inline
   ════════════════════════════════════════════════════ */
@@ -470,9 +488,15 @@ class TTB_Client_UI {
         break;
 
       case 'social':
-        $token = $module_states['social_token'] ?? '';
+        $token     = $module_states['social_token'] ?? '';
+        $has_posts = $module_states['social_has_posts'] ?? false;
         if (!$token) { self::render_wip($t, $svc, $lang); return; }
-        TTB_Social_Client::render($token);
+        if (!$has_posts) {
+          self::render_social_waiting($t, $token, $lang);
+        } else {
+          $_GET['ttb_return'] = 'main';
+          TTB_Social_Client::render($token);
+        }
         break;
 
       case 'web':

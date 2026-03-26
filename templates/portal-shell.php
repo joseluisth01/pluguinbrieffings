@@ -11,6 +11,86 @@ if ($auth->is_client()) {
 
 $logout_label = $lang === 'en' ? 'Log out' : 'Cerrar sesión';
 
+/* ══════════════════════════════════════════════════════════════
+   HELPER: resuelve entry token → autologin con ctab destino
+   Si ya tiene sesión → redirect directo a ctab
+   Si no tiene sesión → busca cliente central → autologin con ctab
+   Fallback → portal de token independiente (fallback_url)
+══════════════════════════════════════════════════════════════ */
+function ttb_smart_entry_redirect($auth, $token, $ctab, $token_param, $resolve_fn) {
+  if ($auth->is_client()) {
+    wp_safe_redirect(home_url('/briefing?ctab=' . $ctab));
+    exit;
+  }
+
+  // Resolver token → cliente central
+  $central = $resolve_fn($token);
+
+  if ($central && !empty($central->username)) {
+    $autologin_url = home_url('/briefing')
+      . '?ttb_u=' . rawurlencode($central->username)
+      . '&ttb_p=' . rawurlencode($central->name)
+      . '&ctab=' . $ctab;
+    wp_safe_redirect($autologin_url);
+    exit;
+  }
+
+  // Fallback: portal independiente de token
+  wp_safe_redirect(home_url('/briefing?' . $token_param . '=' . urlencode($token)));
+  exit;
+}
+
+// ── ttb_social_entry ─────────────────────────────────────────────────
+$social_entry = sanitize_text_field($_GET['ttb_social_entry'] ?? '');
+if ($social_entry) {
+  ttb_smart_entry_redirect($auth, $social_entry, 'social', 'social', function($token) {
+    global $wpdb;
+    $sc  = $wpdb->get_row($wpdb->prepare(
+      "SELECT ttb_client_id FROM " . TTB_Social_DB::clients_table() . " WHERE token=%s LIMIT 1", $token
+    ));
+    if (!$sc || !$sc->ttb_client_id) return null;
+    return $wpdb->get_row($wpdb->prepare(
+      "SELECT username, name FROM " . TTB_DB::clients_table() . " WHERE id=%d LIMIT 1",
+      (int)$sc->ttb_client_id
+    ));
+  });
+}
+
+// ── ttb_webprog_entry ─────────────────────────────────────────────────
+$webprog_entry = sanitize_text_field($_GET['ttb_webprog_entry'] ?? '');
+if ($webprog_entry) {
+  ttb_smart_entry_redirect($auth, $webprog_entry, 'web', 'webprog', function($token) {
+    global $wpdb;
+    // webprog proyectos guardan emails pero no tienen ttb_client_id directo.
+    // Buscamos por nombre exacto en la tabla central.
+    $project = $wpdb->get_row($wpdb->prepare(
+      "SELECT name FROM " . TTB_WebProg_DB::projects_table() . " WHERE token=%s LIMIT 1", $token
+    ));
+    if (!$project) return null;
+    return $wpdb->get_row($wpdb->prepare(
+      "SELECT username, name FROM " . TTB_DB::clients_table() . " WHERE name=%s LIMIT 1",
+      $project->name
+    ));
+  });
+}
+
+// ── ttb_webrev_entry ─────────────────────────────────────────────────
+$webrev_entry = sanitize_text_field($_GET['ttb_webrev_entry'] ?? '');
+if ($webrev_entry) {
+  ttb_smart_entry_redirect($auth, $webrev_entry, 'design', 'webrev', function($token) {
+    global $wpdb;
+    $project = $wpdb->get_row($wpdb->prepare(
+      "SELECT name FROM " . TTB_WebRev_DB::projects_table() . " WHERE token=%s LIMIT 1", $token
+    ));
+    if (!$project) return null;
+    return $wpdb->get_row($wpdb->prepare(
+      "SELECT username, name FROM " . TTB_DB::clients_table() . " WHERE name=%s LIMIT 1",
+      $project->name
+    ));
+  });
+}
+// ─────────────────────────────────────────────────────────────────────
+
 nocache_headers();
 ?>
 <!DOCTYPE html>
@@ -82,39 +162,30 @@ nocache_headers();
 <?php endif; ?>
 
 <?php
-// ── Lógica de acciones POST de módulos inline ─────────────────────────
-// Cuando los portales de diseño/social/web se renderizan dentro del
-// portal del cliente (tab inline), sus formularios POST vuelven aquí.
-// Los capturamos y delegamos al handler correcto antes de renderizar.
-
+// ── Acciones POST de módulos inline ───────────────────────────────────
 if ($auth->is_client() && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
-  // Acción de revisión de diseño (webrev)
-  if (isset($_POST['ttb_webrev_action'])) {
-    $webrev_token = sanitize_text_field($_POST['ttb_webrev_token'] ?? '');
-    if ($webrev_token) {
-      $project = TTB_WebRev_DB::get_project_by_token($webrev_token);
-      if ($project) {
-        // handle_submit es privado, pero render() lo llama internamente
-        // al detectar POST con ttb_webrev_action presente.
-        // Lo invocamos a través del render con $_GET simulado.
-        $_GET['webrev'] = $webrev_token;
-        TTB_WebRev_Client::render($webrev_token);
-        exit; // render hace js_redirect internamente
-      }
-    }
-  }
-
-  // Acción del portal social (approve/reject/upload)
   if (isset($_POST['ttb_social_action'])) {
     $social_token = sanitize_text_field($_POST['ttb_social_token'] ?? '');
     if ($social_token) {
+      $_GET['ttb_return'] = sanitize_text_field($_POST['ttb_return'] ?? 'main');
       TTB_Social_Client::render($social_token);
       exit;
     }
   }
 
-  // Acción de revisión de prog. web (webprog)
+  if (isset($_POST['ttb_webrev_action'])) {
+    $webrev_token = sanitize_text_field($_POST['ttb_webrev_token'] ?? '');
+    if ($webrev_token) {
+      $project = TTB_WebRev_DB::get_project_by_token($webrev_token);
+      if ($project) {
+        $_GET['webrev'] = $webrev_token;
+        TTB_WebRev_Client::render($webrev_token);
+        exit;
+      }
+    }
+  }
+
   if (isset($_POST['ttb_webprog_action'])) {
     $webprog_token = sanitize_text_field($_POST['ttb_webprog_token'] ?? '');
     if ($webprog_token) {
@@ -137,7 +208,6 @@ if (!$auth->current()) {
 </div>
 
 <?php
-// ── Modal de envío exitoso ──────────────────────────────────────────
 if ($auth->is_client()) {
   $modal_svc = TTB_Forms::consume_modal($auth->client_id());
   if ($modal_svc) {
@@ -155,16 +225,16 @@ if ($auth->is_client()) {
         'web'    => 'Web Pre-briefing submitted',
       ],
     ];
-    $modal_subs = [
+    $modal_subs   = [
       'es' => ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web'],
       'en' => ['design' => 'Design', 'social' => 'Social Media',   'seo' => 'SEO', 'web' => 'Web'],
     ];
     $modal_emojis = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐'];
-    $modal_msgs = [
+    $modal_msgs   = [
       'es' => 'Nuestro equipo lo revisará y se pondrá en contacto contigo muy pronto. ¡Gracias por confiar en TicTac!',
       'en' => 'Our team will review it and get in touch with you very soon. Thank you for trusting TicTac!',
     ];
-    $modal_btn = ['es' => 'Perfecto, ¡gracias! 🎉', 'en' => 'Great, thanks! 🎉'];
+    $modal_btn    = ['es' => 'Perfecto, ¡gracias! 🎉', 'en' => 'Great, thanks! 🎉'];
 
     $t     = $modal_titles[$lang][$modal_svc]  ?? 'Prebriefing enviado';
     $sub   = $modal_subs[$lang][$modal_svc]    ?? strtoupper($modal_svc);

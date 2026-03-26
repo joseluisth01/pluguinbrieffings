@@ -3,11 +3,11 @@ if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_Client')) return;
 
 /**
- * TTB_Social_Client — v3
+ * TTB_Social_Client — v4
  * Fixes:
- *  - Posts del cliente almacenados en el DOM (mismo patrón que admin)
- *  - Botones aprobar/rechazar visibles y funcionando dentro del modal
- *  - Chip muestra solo "Post" (sin caption)
+ *  - Toda la interacción permanece dentro de la pestaña del portal principal
+ *  - Detecta ttb_return=main para redirigir al portal principal tras acciones POST
+ *  - URLs de navegación y formularios adaptadas según contexto (portal principal vs. acceso directo)
  */
 class TTB_Social_Client {
 
@@ -31,6 +31,9 @@ class TTB_Social_Client {
 
     TTB_Social_DB::log($client->id, null, 'client_view', 'client', []);
 
+    // ── Detectar si venimos del portal principal ──────────────────────
+    $is_main_portal = (($_GET['ttb_return'] ?? '') === 'main');
+
     $tab          = sanitize_text_field($_GET['stab'] ?? 'calendar');
     $filter_month = sanitize_text_field($_GET['filter_month'] ?? date('Y-m'));
 
@@ -41,6 +44,17 @@ class TTB_Social_Client {
     $prev_month = date('Y-m', strtotime('-1 month', $first_day));
     $next_month = date('Y-m', strtotime('+1 month', $first_day));
     $month_name = date_i18n('F Y', $first_day);
+
+    // ── URLs base según contexto ──────────────────────────────────────
+    // Portal principal: navegación dentro de /briefing con ctab=social
+    // Acceso directo:   navegación en /briefing?social=TOKEN
+    if ($is_main_portal) {
+      $nav_base    = home_url('/briefing?ctab=social');
+      $form_action = esc_url(home_url('/briefing'));
+    } else {
+      $nav_base    = TTB_Social_DB::client_url($token);
+      $form_action = esc_url(TTB_Social_DB::client_url($token));
+    }
 
     global $wpdb;
     $posts_table   = TTB_Social_DB::posts_table();
@@ -103,9 +117,9 @@ class TTB_Social_Client {
 
       <!-- Tabs -->
       <div class="ttb-social-tabs">
-        <a href="<?php echo esc_url(TTB_Social_DB::client_url($token) . '&stab=calendar&filter_month=' . urlencode($filter_month)); ?>"
+        <a href="<?php echo esc_url($nav_base . '&stab=calendar&filter_month=' . urlencode($filter_month)); ?>"
            class="ttb-social-tab <?php echo $tab === 'calendar' ? 'ttb-social-tab--active' : ''; ?>">Mis publicaciones</a>
-        <a href="<?php echo esc_url(TTB_Social_DB::client_url($token) . '&stab=content'); ?>"
+        <a href="<?php echo esc_url($nav_base . '&stab=content'); ?>"
            class="ttb-social-tab <?php echo $tab === 'content' ? 'ttb-social-tab--active' : ''; ?>">Enviar contenido</a>
       </div>
 
@@ -114,20 +128,20 @@ class TTB_Social_Client {
         <div class="ttb-card">
           <!-- Navegación mes -->
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
-            <a href="<?php echo esc_url(TTB_Social_DB::client_url($token) . '&stab=calendar&filter_month=' . $prev_month); ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">&#8592;</a>
+            <a href="<?php echo esc_url($nav_base . '&stab=calendar&filter_month=' . $prev_month); ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">&#8592;</a>
             <h3 style="margin:0;font-size:18px;text-transform:capitalize"><?php echo esc_html($month_name); ?></h3>
-            <a href="<?php echo esc_url(TTB_Social_DB::client_url($token) . '&stab=calendar&filter_month=' . $next_month); ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">&#8594;</a>
+            <a href="<?php echo esc_url($nav_base . '&stab=calendar&filter_month=' . $next_month); ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">&#8594;</a>
           </div>
 
           <?php
           // Store de posts en el DOM (para el modal)
-          self::render_client_posts_store($posts_raw, $token, $statuses);
+          self::render_client_posts_store($posts_raw, $token, $statuses, $is_main_portal, $form_action);
 
           // Grid del calendario (mismo helper que el admin, is_admin=false)
           TTB_Social_Admin::render_calendar_grid(
             $posts_by_day, $days_in, $start_dow,
             $year, $month,
-            esc_url(TTB_Social_DB::client_url($token)),
+            esc_url($nav_base),
             $statuses, $filter_month, 0, false
           );
           ?>
@@ -155,10 +169,11 @@ class TTB_Social_Client {
           <h3 style="margin:0 0 6px">Envíanos tu contenido</h3>
           <p class="ttb-muted" style="margin:0 0 18px">Sube fotos o vídeos que quieras usar en tus publicaciones, o escríbenos una idea.</p>
 
-          <form method="post" action="<?php echo esc_url(TTB_Social_DB::client_url($token)); ?>" enctype="multipart/form-data" id="ttb-social-upload-form">
+          <form method="post" action="<?php echo $form_action; ?>" enctype="multipart/form-data" id="ttb-social-upload-form">
             <?php wp_nonce_field('ttb_social_upload_' . $token); ?>
             <input type="hidden" name="ttb_social_action" value="upload">
             <input type="hidden" name="ttb_social_token" value="<?php echo esc_attr($token); ?>">
+            <input type="hidden" name="ttb_return" value="<?php echo $is_main_portal ? 'main' : ''; ?>">
             <input type="hidden" name="ttb_file_count" id="ttb_file_count" value="0">
 
             <div class="ttb-dropzone" id="ttb-social-dropzone" tabindex="0">
@@ -258,7 +273,7 @@ class TTB_Social_Client {
         var fd = new FormData(form);
         activeFiles.forEach(function(f,i){ fd.append('social_file_'+i, f, f.name); });
         fd.set('ttb_file_count', activeFiles.length);
-        fetch(window.location.href, {method:'POST', body:fd})
+        fetch(form.action || window.location.href, {method:'POST', body:fd})
           .then(function(r){ return r.text(); })
           .then(function(html){
             var match = html.match(/window\.location\.replace\((.+?)\)/);
@@ -273,9 +288,14 @@ class TTB_Social_Client {
 
   /**
    * Renderiza el HTML de cada post en divs ocultos #ttb-client-post-data-{id}
-   * El JS del calendario los clona al abrir el modal (igual que en admin).
+   * El JS del calendario los clona al abrir el modal.
+   * Acepta $is_main_portal y $form_action para adaptar URLs y formularios.
    */
-  private static function render_client_posts_store($posts, $token, $statuses) {
+  private static function render_client_posts_store($posts, $token, $statuses, $is_main_portal = false, $form_action = '') {
+    if (!$form_action) {
+      $form_action = esc_url(TTB_Social_DB::client_url($token));
+    }
+
     echo '<div id="ttb-client-posts-store" style="display:none">';
     foreach ($posts as $post) {
       [$sl,$sbg,$sbc,$sco] = $statuses[$post->status] ?? ['—','#f3f4f6','#e5e7eb','#374151'];
@@ -331,11 +351,12 @@ class TTB_Social_Client {
             <p style="margin:0 0 12px;font-size:13px;font-weight:700;color:var(--ttb-text)">¿Qué quieres hacer con esta publicación?</p>
 
             <!-- Aprobar -->
-            <form method="post" action="<?php echo esc_url(TTB_Social_DB::client_url($token)); ?>" style="margin-bottom:10px">
+            <form method="post" action="<?php echo $form_action; ?>" style="margin-bottom:10px">
               <?php wp_nonce_field('ttb_social_approve_' . (int)$post->id . '_' . $token); ?>
               <input type="hidden" name="ttb_social_action" value="approve">
               <input type="hidden" name="ttb_social_token" value="<?php echo esc_attr($token); ?>">
               <input type="hidden" name="post_id" value="<?php echo (int)$post->id; ?>">
+              <input type="hidden" name="ttb_return" value="<?php echo $is_main_portal ? 'main' : ''; ?>">
               <button class="ttb-btn" type="submit" style="background:linear-gradient(135deg,#10b981,#059669);width:100%">
                 Aprobar esta publicación
               </button>
@@ -352,11 +373,12 @@ class TTB_Social_Client {
               </button>
             </div>
             <div id="ttb-reject-form-<?php echo (int)$post->id; ?>" style="display:none;margin-top:10px">
-              <form method="post" action="<?php echo esc_url(TTB_Social_DB::client_url($token)); ?>">
+              <form method="post" action="<?php echo $form_action; ?>">
                 <?php wp_nonce_field('ttb_social_approve_' . (int)$post->id . '_' . $token); ?>
                 <input type="hidden" name="ttb_social_action" value="reject">
                 <input type="hidden" name="ttb_social_token" value="<?php echo esc_attr($token); ?>">
                 <input type="hidden" name="post_id" value="<?php echo (int)$post->id; ?>">
+                <input type="hidden" name="ttb_return" value="<?php echo $is_main_portal ? 'main' : ''; ?>">
                 <textarea name="client_note" class="ttb-textarea" style="min-height:80px;margin-bottom:10px"
                   placeholder="Cuéntanos qué cambiarías: imagen, texto, tono, color... Con detalle nos ayudas a acertar." required></textarea>
                 <button class="ttb-btn" type="submit" style="background:linear-gradient(135deg,#e11d48,#be123c);width:100%">
@@ -382,6 +404,13 @@ class TTB_Social_Client {
   }
 
   private static function js_redirect($url) {
+    // Si venimos del portal principal, redirigir siempre al portal con ctab=social
+    $return = sanitize_text_field($_POST['ttb_return'] ?? $_GET['ttb_return'] ?? '');
+    if ($return === 'main') {
+      $stab = sanitize_text_field($_POST['stab'] ?? $_GET['stab'] ?? 'calendar');
+      $filter_month = sanitize_text_field($_POST['filter_month'] ?? $_GET['filter_month'] ?? date('Y-m'));
+      $url = home_url('/briefing?ctab=social&stab=' . urlencode($stab) . '&filter_month=' . urlencode($filter_month));
+    }
     echo '<script>window.location.replace(' . wp_json_encode(esc_url_raw($url)) . ');</script>';
     exit;
   }
@@ -460,6 +489,12 @@ class TTB_Social_Client {
       TTB_Social_DB::log($client->id, null, 'content_uploaded', 'client', ['files' => $uploaded]);
     }
 
+    // Redirigir a la pestaña de contenido (respetando contexto)
+    $return = sanitize_text_field($_POST['ttb_return'] ?? '');
+    if ($return === 'main') {
+      $_POST['ttb_return'] = 'main';
+      $_GET['stab']        = 'content';
+    }
     self::js_redirect(TTB_Social_DB::client_url($token) . '&stab=content');
   }
 

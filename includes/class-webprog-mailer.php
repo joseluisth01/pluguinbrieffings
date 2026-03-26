@@ -5,11 +5,22 @@ if (class_exists('TTB_WebProg_Mailer')) return;
 /**
  * TTB_WebProg_Mailer
  * Emails del módulo Revisiones Prog. Web
+ * v2: emails usan ttb_webprog_entry=TOKEN para llevar al portal con pestañas
  */
 class TTB_WebProg_Mailer {
 
   private $pink = '#D72173';
   private $logo = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
+
+  /* ─────────────────────────────────────────────
+     URL inteligente para emails al cliente
+     Si tiene sesión → /briefing?ctab=web
+     Si no tiene sesión → autologin con ctab=web
+     Fallback → /briefing?webprog=TOKEN
+  ───────────────────────────────────────────── */
+  private function smart_url($token) {
+    return home_url('/briefing?ttb_webprog_entry=' . urlencode($token));
+  }
 
   /* ─────────────────────────────────────────────
      EMAIL AL CLIENTE: invitación a revisar la web
@@ -18,7 +29,7 @@ class TTB_WebProg_Mailer {
     $emails = $this->parse_emails($project->emails);
     if (!$emails) return;
 
-    $url       = TTB_WebProg_DB::client_url($project->token);
+    $url       = $this->smart_url($project->token);
     $subject   = get_option('ttb_webprog_email_subject', '🌐 Tu web está lista para revisar — TicTac Comunicación');
     $intro     = get_option('ttb_webprog_email_intro',   'Hemos programado tu web y ya está disponible para que la revises. Accede al enlace, navégala con calma y danos tu feedback.');
     $btn_label = get_option('ttb_webprog_email_btn',     'Ver mi web →');
@@ -33,7 +44,6 @@ class TTB_WebProg_Mailer {
 
   /* ─────────────────────────────────────────────
      EMAIL INTERNO: cliente aceptó la web
-     Ahora recibe go_live_date para incluirlo
   ───────────────────────────────────────────── */
   public function send_accepted_alert($project) {
     $to_hola = get_option('ttb_webprog_notify_hola',       'hola@tictac-comunicacion.es');
@@ -161,7 +171,6 @@ class TTB_WebProg_Mailer {
     $logo   = $this->logo;
     $portal = home_url('/briefing?section=revisiones-web');
 
-    // Bloque fecha preferida de subida
     $go_live_block = '';
     if ($go_live_formatted) {
       $go_live_block = '
@@ -169,7 +178,7 @@ class TTB_WebProg_Mailer {
           <p style="margin:0 0 4px;font-size:12px;font-weight:900;color:#92400e;text-transform:uppercase;letter-spacing:.07em">📅 Fecha preferida de subida</p>
           <p style="margin:0;font-size:20px;font-weight:900;color:#92400e">' . esc_html($go_live_formatted) . '</p>
           <p style="margin:6px 0 0;font-size:13px;color:#b45309;line-height:1.5">
-            El cliente ha sido informado de que la web estará parcialmente caída ese día. Recuerda programar la subida para esa fecha.
+            El cliente ha sido informado de que la web estará parcialmente caída ese día.
           </p>
         </div>';
     }
@@ -181,43 +190,31 @@ class TTB_WebProg_Mailer {
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
 <tr><td align="center">
   <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
-    <tr>
-      <td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
-        <img src="' . $logo . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
-      </td>
-    </tr>
-    <tr>
-      <td style="background:#fff;padding:32px 36px">
-        <div style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:14px;padding:20px 24px;margin-bottom:24px">
-          <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#065f46">✅ ¡Web aceptada!</p>
-          <p style="margin:0;font-size:14px;color:#047857">El cliente ha dado el visto bueno a la programación web.</p>
-        </div>
-        ' . $go_live_block . '
-        <div style="background:#f9fafb;border-radius:12px;padding:18px 22px;margin-bottom:24px">
-          <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase">Datos del proyecto</p>
-          <p style="margin:0 0 6px;font-size:15px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($project->name) . '</p>
-          <p style="margin:0 0 6px;font-size:15px;color:#1a1a2e"><strong>Web:</strong> <a href="' . esc_url($project->web_url) . '" style="color:' . $pink . '">' . esc_html($project->web_url) . '</a></p>
-          <p style="margin:0;font-size:15px;color:#1a1a2e"><strong>Fecha de aceptación:</strong> ' . date_i18n('d/m/Y H:i') . '</p>
-        </div>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center">
-              <a href="' . esc_url($portal) . '" target="_blank" rel="noopener"
-                 style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
-                        color:#fff;text-decoration:none;font-weight:900;font-size:15px;
-                        padding:14px 36px;border-radius:12px">
-                Ver en el portal →
-              </a>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-    <tr>
-      <td align="center" style="background:#1a1a2e;padding:18px 32px">
-        <p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
-      </td>
-    </tr>
+    <tr><td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
+      <img src="' . $logo . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
+    </td></tr>
+    <tr><td style="background:#fff;padding:32px 36px">
+      <div style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:14px;padding:20px 24px;margin-bottom:24px">
+        <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#065f46">✅ ¡Web aceptada!</p>
+        <p style="margin:0;font-size:14px;color:#047857">El cliente ha dado el visto bueno a la programación web.</p>
+      </div>
+      ' . $go_live_block . '
+      <div style="background:#f9fafb;border-radius:12px;padding:18px 22px;margin-bottom:24px">
+        <p style="margin:0 0 6px;font-size:14px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($project->name) . '</p>
+        <p style="margin:0 0 6px;font-size:14px;color:#1a1a2e"><strong>Web:</strong> <a href="' . esc_url($project->web_url) . '" style="color:' . $pink . '">' . esc_html($project->web_url) . '</a></p>
+        <p style="margin:0;font-size:14px;color:#1a1a2e"><strong>Fecha:</strong> ' . date_i18n('d/m/Y H:i') . '</p>
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+        <a href="' . esc_url($portal) . '" target="_blank" rel="noopener"
+           style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
+                  color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">
+          Ver en el portal →
+        </a>
+      </td></tr></table>
+    </td></tr>
+    <tr><td align="center" style="background:#1a1a2e;padding:18px 32px">
+      <p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
+    </td></tr>
   </table>
 </td></tr>
 </table>
@@ -238,20 +235,14 @@ class TTB_WebProg_Mailer {
       foreach ($blocks_raw as $bl) {
         $type = $bl['type'] ?? '';
         if ($type === 'text' && !empty($bl['html'])) {
-          $content_html .= '<div style="margin-bottom:16px;font-size:15px;color:#1a1a2e;line-height:1.7">'
-            . wp_kses_post($bl['html'])
-            . '</div>';
+          $content_html .= '<div style="margin-bottom:16px;font-size:15px;color:#1a1a2e;line-height:1.7">' . wp_kses_post($bl['html']) . '</div>';
         } elseif ($type === 'image') {
           $content_html .= '<div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">';
           if (!empty($bl['image_url'])) {
-            $content_html .= '<a href="' . esc_url($bl['image_url']) . '" target="_blank">'
-              . '<img src="' . esc_url($bl['image_url']) . '" style="width:100%;max-height:320px;object-fit:contain;display:block;background:#f4f4f4" alt="Adjunto">'
-              . '</a>';
+            $content_html .= '<a href="' . esc_url($bl['image_url']) . '" target="_blank"><img src="' . esc_url($bl['image_url']) . '" style="width:100%;max-height:320px;object-fit:contain;display:block;background:#f4f4f4" alt="Adjunto"></a>';
           }
           if (!empty($bl['caption'])) {
-            $content_html .= '<div style="padding:10px 14px;font-size:14px;color:#374151;line-height:1.6;border-top:1px solid #f3f4f6">'
-              . nl2br(esc_html($bl['caption']))
-              . '</div>';
+            $content_html .= '<div style="padding:10px 14px;font-size:14px;color:#374151;line-height:1.6;border-top:1px solid #f3f4f6">' . nl2br(esc_html($bl['caption'])) . '</div>';
           }
           $content_html .= '</div>';
         }
@@ -259,12 +250,6 @@ class TTB_WebProg_Mailer {
     } else {
       if ($revision->message) {
         $content_html .= '<p style="font-size:15px;color:#1a1a2e;line-height:1.6;white-space:pre-line">' . esc_html($revision->message) . '</p>';
-      }
-      $old_images = json_decode((string)$revision->images, true);
-      if (is_array($old_images)) {
-        foreach ($old_images as $url) {
-          $content_html .= '<div style="margin-bottom:8px"><a href="' . esc_url($url) . '" target="_blank"><img src="' . esc_url($url) . '" style="max-width:100%;border-radius:8px;border:1px solid #e5e7eb" alt="Adjunto"></a></div>';
-        }
       }
     }
 
@@ -275,42 +260,30 @@ class TTB_WebProg_Mailer {
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
 <tr><td align="center">
   <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
-    <tr>
-      <td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
-        <img src="' . $logo . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
-      </td>
-    </tr>
-    <tr>
-      <td style="background:#fff;padding:32px 36px">
-        <div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:14px;padding:20px 24px;margin-bottom:24px">
-          <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#92400e">✏️ Cambios web solicitados — Ronda ' . $round . '</p>
-          <p style="margin:0;font-size:14px;color:#b45309">El cliente ha pedido modificaciones en la programación web.</p>
-        </div>
-        <div style="background:#f9fafb;border-radius:12px;padding:18px 22px;margin-bottom:24px">
-          <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase">Datos del proyecto</p>
-          <p style="margin:0 0 6px;font-size:15px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($project->name) . '</p>
-          <p style="margin:0;font-size:15px;color:#1a1a2e"><strong>Web:</strong> <a href="' . esc_url($project->web_url) . '" style="color:' . $pink . '">' . esc_html($project->web_url) . '</a></p>
-        </div>
-        ' . ($content_html ? '<div style="margin-bottom:24px"><p style="margin:0 0 12px;font-size:12px;font-weight:900;color:#9ca3af;text-transform:uppercase">Feedback del cliente</p>' . $content_html . '</div>' : '') . '
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center">
-              <a href="' . esc_url($portal) . '" target="_blank" rel="noopener"
-                 style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
-                        color:#fff;text-decoration:none;font-weight:900;font-size:15px;
-                        padding:14px 36px;border-radius:12px">
-                Ver en el portal →
-              </a>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-    <tr>
-      <td align="center" style="background:#1a1a2e;padding:18px 32px">
-        <p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
-      </td>
-    </tr>
+    <tr><td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
+      <img src="' . $logo . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
+    </td></tr>
+    <tr><td style="background:#fff;padding:32px 36px">
+      <div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:14px;padding:20px 24px;margin-bottom:24px">
+        <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#92400e">✏️ Cambios web solicitados — Ronda ' . $round . '</p>
+        <p style="margin:0;font-size:14px;color:#b45309">El cliente ha pedido modificaciones en la programación web.</p>
+      </div>
+      <div style="background:#f9fafb;border-radius:12px;padding:18px 22px;margin-bottom:24px">
+        <p style="margin:0 0 6px;font-size:14px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($project->name) . '</p>
+        <p style="margin:0;font-size:14px;color:#1a1a2e"><strong>Web:</strong> <a href="' . esc_url($project->web_url) . '" style="color:' . $pink . '">' . esc_html($project->web_url) . '</a></p>
+      </div>
+      ' . ($content_html ? '<div style="margin-bottom:24px">' . $content_html . '</div>' : '') . '
+      <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+        <a href="' . esc_url($portal) . '" target="_blank" rel="noopener"
+           style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
+                  color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">
+          Ver en el portal →
+        </a>
+      </td></tr></table>
+    </td></tr>
+    <tr><td align="center" style="background:#1a1a2e;padding:18px 32px">
+      <p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
+    </td></tr>
   </table>
 </td></tr>
 </table>
