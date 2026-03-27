@@ -1,14 +1,14 @@
 <?php
 /**
  * Plugin Name: TicTac Briefing Portal (Standalone)
- * Description: Portal /briefing con login independiente + admin frontend + clientes + formularios por servicio + Google Drive + Revisiones Diseños + Revisiones Prog. Web + Redes Sociales + Calendario Editorial.
- * Version: 1.8.0
+ * Description: Portal /briefing con login independiente + admin frontend + clientes + formularios por servicio + Google Drive + Revisiones Diseños + Revisiones Prog. Web + Redes Sociales + Calendario Editorial + Módulo Briefing.
+ * Version: 1.9.0
  * Author: TicTac Comunicación
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('TTB_VERSION', '1.8.0');
+define('TTB_VERSION', '1.9.0');
 define('TTB_PATH', plugin_dir_path(__FILE__));
 define('TTB_URL',  plugin_dir_url(__FILE__));
 
@@ -52,6 +52,14 @@ require_once TTB_PATH . 'includes/class-social-client.php';
 require_once TTB_PATH . 'includes/class-social-editorial-admin.php';
 require_once TTB_PATH . 'includes/class-social-editorial-client.php';
 
+// ── Módulo: Briefing (post-prebriefing) ───────────────────────
+require_once TTB_PATH . 'includes/class-briefing-db.php';
+require_once TTB_PATH . 'includes/class-briefing-drive.php';
+require_once TTB_PATH . 'includes/class-briefing-mailer.php';
+require_once TTB_PATH . 'includes/class-briefing-cron.php';
+require_once TTB_PATH . 'includes/class-briefing-admin.php';
+require_once TTB_PATH . 'includes/class-briefing-client.php';
+
 register_activation_hook(__FILE__,   ['TTB_Activator',   'activate']);
 register_deactivation_hook(__FILE__, ['TTB_Deactivator', 'deactivate']);
 
@@ -66,12 +74,14 @@ add_action('plugins_loaded', function () {
   TTB_DB::run_migrations();
   TTB_WebRev_DB::run_migrations();
   TTB_WebProg_DB::run_migrations();
-  TTB_Social_DB::run_migrations(); // v3: tabla editorial
+  TTB_Social_DB::run_migrations();
+  TTB_Briefing_DB::run_migrations(); // ← Nuevo módulo Briefing
 
   // Cron
   TTB_WebRev_Cron::register();
   TTB_WebProg_Cron::register();
   TTB_Social_Cron::register();
+  TTB_Briefing_Cron::register(); // ← Nuevo módulo Briefing
 
   // ✅ Logout de WordPress → también borra sesión del portal
   add_action('wp_logout', function () use ($auth) {

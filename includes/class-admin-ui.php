@@ -46,6 +46,7 @@ class TTB_Admin_UI {
     echo '<div class="ttb-tabs ttb-tabs--main">';
     self::section_link('clientes',       'Clientes',              $section);
     self::section_link('briefings',      'Prebriefings',          $section);
+    self::section_link('briefing-doc',   'Briefing',              $section); // ← NUEVO
     self::section_link('revisiones-dis', 'Revisiones Diseños',    $section);
     self::section_link('redes-sociales', 'Redes Sociales',        $section);
     self::section_link('revisiones-web', 'Revisiones Prog. Web',  $section);
@@ -69,6 +70,10 @@ class TTB_Admin_UI {
         else                          self::render_answers();
         break;
 
+      case 'briefing-doc': // ← NUEVO: módulo Briefing
+        TTB_Briefing_Admin::render();
+        break;
+
       case 'revisiones-dis':
         TTB_WebRev_Admin::render();
         break;
@@ -89,6 +94,7 @@ class TTB_Admin_UI {
     $icon_map = [
       'clientes'       => 'clients',
       'briefings'      => 'briefings',
+      'briefing-doc'   => 'briefings',    // ← reutiliza icono briefings
       'revisiones-dis' => 'revisiones-dis',
       'redes-sociales' => 'redes-sociales',
       'revisiones-web' => 'revisiones-web',
@@ -115,7 +121,6 @@ class TTB_Admin_UI {
 
   /* ════════════════════════════════
      GUARDAR FORMULARIOS JSON
-     — añadido ttb_form_reservas —
   ════════════════════════════════ */
   private static function handle_forms_save($tab) {
     if (!isset($_POST['ttb_admin_save_forms'])) return;
@@ -137,7 +142,6 @@ class TTB_Admin_UI {
 
   /* ════════════════════════════════
      RENDER: FORMULARIOS (ES / EN)
-     — añadido bloque Reservas —
   ════════════════════════════════ */
   private static function render_forms($lang = 'es') {
     $sfx = ($lang === 'en') ? '_en' : '';
@@ -157,7 +161,6 @@ class TTB_Admin_UI {
     wp_nonce_field('ttb_admin_forms');
     echo '<input type="hidden" name="ttb_form_lang" value="' . esc_attr($lang) . '">';
 
-    // Grid 2 columnas para los 4 formularios originales
     echo '<div class="ttb-grid2">';
     self::json_box('Design',  'ttb_form_design',  $design);
     self::json_box('Social',  'ttb_form_social',  $social);
@@ -165,7 +168,6 @@ class TTB_Admin_UI {
     self::json_box('Web',     'ttb_form_web',     $web);
     echo '</div>';
 
-    // Reservas en su propia fila a ancho completo
     echo '<div style="margin-top:16px">';
     echo '<h4 style="margin:0 0 8px;font-size:15px;color:var(--ttb-text)">🍽️ Gestor de Reservas Restaurante</h4>';
     echo '<textarea name="ttb_form_reservas" class="ttb-textarea" style="min-height:180px">' . esc_textarea($reservas) . '</textarea>';

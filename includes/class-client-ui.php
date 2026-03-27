@@ -24,6 +24,7 @@ class TTB_Client_UI {
         'sub'           => 'Este es tu espacio de trabajo con TicTac. Aquí puedes rellenar tus prebriefings y seguir el avance de cada proyecto.',
         'no_svc'        => 'No tienes servicios asignados todavía.',
         'tab_brief'     => 'Prebriefing',
+        'tab_briefing'  => 'Briefing',     // ← NUEVO
         'tab_design'    => 'Diseño',
         'tab_social'    => 'Redes Sociales',
         'tab_web'       => 'Prog. Web',
@@ -45,6 +46,7 @@ class TTB_Client_UI {
         'sub'           => 'This is your workspace with TicTac. Fill in your pre-briefings here and track the progress of each project.',
         'no_svc'        => 'No services assigned yet.',
         'tab_brief'     => 'Pre-briefing',
+        'tab_briefing'  => 'Briefing',     // ← NUEVO
         'tab_design'    => 'Design',
         'tab_social'    => 'Social Media',
         'tab_web'       => 'Web Dev',
@@ -68,6 +70,18 @@ class TTB_Client_UI {
     $base_url   = home_url('/briefing');
 
     $module_states = self::get_module_states($client_id, $services, $wpdb);
+
+    // ── ¿Tiene briefings activos? ─────────────────────────────
+    $briefings = TTB_Briefing_DB::get_by_client($client_id);
+    $has_briefings = !empty($briefings);
+    $pending_briefing = null;
+    foreach ($briefings as $b) {
+      if (in_array($b->status, ['pending', 'rejected'], true)) {
+        $pending_briefing = $b;
+        break;
+      }
+    }
+    // ─────────────────────────────────────────────────────────
 
     echo '<div class="ttb-container">';
 
@@ -131,6 +145,11 @@ class TTB_Client_UI {
       .ttbc-badge-lock   { background:#f3f4f6; color:#6b7280; border:1px solid #e5e7eb; }
       .ttbc-badge-wip    { background:#fffbeb; color:#92400e; border:1px solid #fde68a; }
       .ttbc-badge-ready  { background:#ecfdf5; color:#065f46; border:1px solid #6ee7b7; }
+      .ttbc-badge-alert  { background:#fff1f2; color:#be123c; border:1px solid #fecdd3; animation: ttbcPulseRed 1.5s ease-in-out infinite; }
+      @keyframes ttbcPulseRed {
+        0%,100% { box-shadow: 0 0 0 0 rgba(190,18,60,.25); }
+        50%      { box-shadow: 0 0 0 4px rgba(190,18,60,0); }
+      }
 
       .ttbc-panel { display: none; }
       .ttbc-panel.active { display: block; }
@@ -306,13 +325,29 @@ class TTB_Client_UI {
       }
     </style>';
 
-    // Render tabs
+    // ── TABS ──────────────────────────────────────────────────
     echo '<div class="ttbc-tabs">';
 
+    // Prebriefing
     $brief_active = ($active_tab === 'briefing') ? ' active' : '';
     echo '<a class="ttbc-tab' . $brief_active . '" href="' . esc_url(add_query_arg('ctab', 'briefing', $base_url)) . '">';
     echo '📋 ' . esc_html($t['tab_brief']);
     echo '</a>';
+
+    // ── NUEVA PESTAÑA: Briefing ──────────────────────────────
+    if ($has_briefings) {
+      $briefing_active = ($active_tab === 'briefings') ? ' active' : '';
+      echo '<a class="ttbc-tab' . $briefing_active . '" href="' . esc_url(add_query_arg('ctab', 'briefings', $base_url)) . '">';
+      echo '📄 ' . esc_html($t['tab_briefing']);
+      // Badge de alerta si hay briefing pendiente
+      if ($pending_briefing) {
+        echo ' <span class="ttbc-tab-badge ttbc-badge-alert">⚠️ Pendiente</span>';
+      } else {
+        echo ' <span class="ttbc-tab-badge ttbc-badge-ready">✓</span>';
+      }
+      echo '</a>';
+    }
+    // ─────────────────────────────────────────────────────────
 
     $module_tabs = [
       'design' => ['icon' => '🎨', 'label' => $t['tab_design'],  'tab_key' => 'design'],
@@ -332,14 +367,11 @@ class TTB_Client_UI {
         echo ' <span class="ttbc-tab-badge ttbc-badge-lock">🔒</span>';
         echo '</span>';
       } elseif ($state === 'wip') {
-        // wip: para social, si tiene token mostramos el portal igualmente
-        // para design/web sin proyecto, mostramos estado de espera pero tab accesible
         echo '<a class="ttbc-tab' . $tab_active . '" href="' . esc_url(add_query_arg('ctab', $cfg['tab_key'], $base_url)) . '">';
         echo $cfg['icon'] . ' ' . esc_html($cfg['label']);
         echo ' <span class="ttbc-tab-badge ttbc-badge-wip">⚙️</span>';
         echo '</a>';
       } else {
-        // ready
         $count = count($module_states[$svc . '_projects'] ?? []);
         echo '<a class="ttbc-tab' . $tab_active . '" href="' . esc_url(add_query_arg('ctab', $cfg['tab_key'], $base_url)) . '">';
         echo $cfg['icon'] . ' ' . esc_html($cfg['label']);
@@ -354,11 +386,29 @@ class TTB_Client_UI {
 
     echo '</div>';
 
-    // Panels
+    // ── PANELS ────────────────────────────────────────────────
+
+    // Panel Prebriefing
     $brief_panel_active = ($active_tab === 'briefing') ? ' active' : '';
     echo '<div class="ttbc-panel' . $brief_panel_active . '" id="ttbc-panel-briefing">';
     self::render_briefing_panel($client_id, $c, $services, $lang);
     echo '</div>';
+
+    // Panel Briefing (nuevo) ─────────────────────────────────
+    if ($has_briefings) {
+      $briefing_panel_active = ($active_tab === 'briefings') ? ' active' : '';
+      echo '<div class="ttbc-panel' . $briefing_panel_active . '" id="ttbc-panel-briefings">';
+
+      // Manejar POST del briefing dentro del portal
+      if (!defined('TTB_BRIEFING_CLIENT_HANDLED') && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ttb_briefing_action'])) {
+        define('TTB_BRIEFING_CLIENT_HANDLED', true);
+        // Se gestiona en portal-shell.php
+      }
+
+      TTB_Briefing_Client::render_for_client($client_id, $lang);
+      echo '</div>';
+    }
+    // ────────────────────────────────────────────────────────
 
     foreach ($module_tabs as $svc => $cfg) {
       if (!in_array($svc, $services, true)) continue;
@@ -382,9 +432,9 @@ class TTB_Client_UI {
     echo '</div>';
   }
 
-  /* ════════════════════════════════════════════════════
-     ESTADO DE MÓDULOS
-  ════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════════
+     ESTADO DE MÓDULOS (sin cambios respecto al original)
+  ════════════════════════════════════════════════════════════════ */
 
   private static function get_module_states($client_id, $services, $wpdb) {
     $states = [];
@@ -425,12 +475,8 @@ class TTB_Client_UI {
           ));
 
           if ($sc_client) {
-            // ── CAMBIO CLAVE: si hay token social, siempre 'ready'
-            // Independientemente de si hay posts publicados o no.
-            // El portal de social gestiona el estado vacío mostrando las pestañas.
             $states[$svc . '_state'] = 'ready';
             $states['social_token']  = $sc_client->token;
-            // has_posts ya no controla si se muestra el portal o no
             $has_posts = (int)$wpdb->get_var($wpdb->prepare(
               "SELECT COUNT(*) FROM " . TTB_Social_DB::posts_table() . " WHERE client_id=%d AND status != 'draft'",
               (int)$sc_client->id
@@ -461,9 +507,9 @@ class TTB_Client_UI {
     return $states;
   }
 
-  /* ════════════════════════════════════════════════════
-     PANEL: PREBRIEFING
-  ════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════════
+     PANEL: PREBRIEFING (sin cambios)
+  ════════════════════════════════════════════════════════════════ */
 
   private static function render_briefing_panel($client_id, $c, $services, $lang) {
     $titles_es = [
@@ -491,9 +537,9 @@ class TTB_Client_UI {
     }
   }
 
-  /* ════════════════════════════════════════════════════
-     PANEL: MÓDULO BLOQUEADO
-  ════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════════
+     PANEL: MÓDULO BLOQUEADO (sin cambios)
+  ════════════════════════════════════════════════════════════════ */
 
   private static function render_locked($t, $base_url) {
     echo '<div class="ttb-card">';
@@ -507,9 +553,9 @@ class TTB_Client_UI {
     echo '</div>';
   }
 
-  /* ════════════════════════════════════════════════════
-     PANEL: MÓDULO EN PROGRESO (design / web sin proyecto)
-  ════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════════
+     PANEL: MÓDULO EN PROGRESO (sin cambios)
+  ════════════════════════════════════════════════════════════════ */
 
   private static function render_wip($t, $svc, $lang) {
     $wip_details = [
@@ -537,29 +583,23 @@ class TTB_Client_UI {
     echo '</div>';
   }
 
-  /* ════════════════════════════════════════════════════
-     PANEL: MÚLTIPLES PROYECTOS / SOCIAL
-  ════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════════
+     PANEL: MÚLTIPLES PROYECTOS / SOCIAL (sin cambios respecto al original)
+  ════════════════════════════════════════════════════════════════ */
 
   private static function render_module_projects($svc, $module_states, $t, $lang) {
 
-    // ── SOCIAL: siempre renderiza el portal completo ─────────────
-    // Tanto si hay posts como si no, TTB_Social_Client::render() se encarga
-    // de mostrar las pestañas (Mis publicaciones, Calendario Editorial, Enviar contenido)
-    // y gestionar el estado vacío internamente.
     if ($svc === 'social') {
       $token = $module_states['social_token'] ?? '';
       if (!$token) {
         self::render_wip($t, $svc, $lang);
         return;
       }
-      // Pasar flag para que el portal sepa que está embebido en el portal principal
       $_GET['ttb_return'] = 'main';
       TTB_Social_Client::render($token);
       return;
     }
 
-    // ── Design / Web: multi-proyecto ─────────────────────────────
     $projects = $module_states[$svc . '_projects'] ?? [];
     if (empty($projects)) {
       self::render_wip($t, $svc, $lang);
@@ -632,7 +672,6 @@ class TTB_Client_UI {
       echo '</div>';
     }
 
-    // JavaScript para toggle
     echo '<script>
     (function(){
       window.ttbcToggleProject = window.ttbcToggleProject || function(blockId) {
