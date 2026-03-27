@@ -4,6 +4,8 @@ if (class_exists('TTB_Social_DB')) return;
 
 class TTB_Social_DB {
 
+  const SCHEMA_VERSION = 2; // v2: week_group en posts
+
   public static function clients_table() {
     global $wpdb;
     return $wpdb->prefix . 'ttb_social_clients';
@@ -69,12 +71,12 @@ class TTB_Social_DB {
       id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       client_id       BIGINT UNSIGNED NOT NULL,
       scheduled_date  DATE NOT NULL,
-      scheduled_time  TIME NULL,
-      network         VARCHAR(40) NOT NULL DEFAULT 'instagram',
+      network         VARCHAR(40) NOT NULL DEFAULT 'all',
       post_type       VARCHAR(40) NOT NULL DEFAULT 'image',
-      caption         LONGTEXT NULL,
+      copy_text       LONGTEXT NULL,
       creative_url    TEXT NULL,
       creative_note   TEXT NULL,
+      week_group      VARCHAR(20) NULL,
       status          VARCHAR(40) NOT NULL DEFAULT 'draft',
       client_note     TEXT NULL,
       notified_at     DATETIME NULL,
@@ -84,7 +86,8 @@ class TTB_Social_DB {
       PRIMARY KEY (id),
       KEY client_idx (client_id),
       KEY date_idx (scheduled_date),
-      KEY status_idx (status)
+      KEY status_idx (status),
+      KEY week_group_idx (week_group)
     ) $charset;";
 
     $sql4 = "CREATE TABLE $audit (
@@ -110,25 +113,58 @@ class TTB_Social_DB {
     dbDelta($sql3);
     dbDelta($sql4);
 
-    // Migración: añadir ttb_client_id si no existe (instancias ya activadas)
     self::migrate_add_ttb_client_id();
+    self::migrate_v2();
+
+    update_option('ttb_social_schema_version', self::SCHEMA_VERSION);
   }
 
-  /**
-   * Añade la columna ttb_client_id a ttb_social_clients si no existe.
-   */
   private static function migrate_add_ttb_client_id() {
     global $wpdb;
     $table = self::clients_table();
-
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
     if (!$table_exists) return;
-
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'ttb_client_id'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `ttb_client_id` BIGINT UNSIGNED NULL AFTER `id`");
       $wpdb->query("ALTER TABLE `$table` ADD KEY `ttb_client_idx` (`ttb_client_id`)");
     }
+  }
+
+  /**
+   * v2: añade week_group a posts, renombra caption→copy_text
+   */
+  private static function migrate_v2() {
+    global $wpdb;
+    $table = self::posts_table();
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) return;
+
+    // Añadir week_group si no existe
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'week_group'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `week_group` VARCHAR(20) NULL AFTER `creative_note`");
+      $wpdb->query("ALTER TABLE `$table` ADD KEY `week_group_idx` (`week_group`)");
+    }
+
+    // Renombrar caption → copy_text si aún existe caption
+    $col_caption = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'caption'");
+    $col_copy    = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'copy_text'");
+    if (!empty($col_caption) && empty($col_copy)) {
+      $wpdb->query("ALTER TABLE `$table` CHANGE `caption` `copy_text` LONGTEXT NULL");
+    }
+
+    // Eliminar scheduled_time si existe (ya no se usa)
+    $col_time = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'scheduled_time'");
+    if (!empty($col_time)) {
+      $wpdb->query("ALTER TABLE `$table` DROP COLUMN `scheduled_time`");
+    }
+  }
+
+  public static function run_migrations() {
+    $current = (int) get_option('ttb_social_schema_version', 0);
+    if ($current >= self::SCHEMA_VERSION) return;
+    self::create_tables();
   }
 
   public static function now() {
@@ -150,6 +186,32 @@ class TTB_Social_DB {
 
   public static function client_url($token) {
     return home_url('/briefing?social=' . urlencode($token));
+  }
+
+  /**
+   * Calcula el week_group para una fecha dada.
+   * Formato: YYYY-Wnn (ej: 2026-W14)
+   * Usa semanas ISO (lunes = inicio de semana).
+   */
+  public static function week_group_for_date($date_str) {
+    $ts = strtotime($date_str);
+    if (!$ts) return null;
+    return date('o-\\WW', $ts); // ISO year + week
+  }
+
+  /**
+   * Rango legible de una semana: "31/03 al 06/04"
+   */
+  public static function week_range_label($week_group) {
+    if (!$week_group || !preg_match('/^(\d{4})-W(\d{2})$/', $week_group, $m)) return $week_group;
+    $year = (int)$m[1];
+    $week = (int)$m[2];
+    // Lunes de esa semana
+    $monday = new DateTime();
+    $monday->setISODate($year, $week, 1);
+    $sunday = clone $monday;
+    $sunday->modify('+6 days');
+    return $monday->format('d/m') . ' al ' . $sunday->format('d/m');
   }
 
   public static function networks() {
@@ -210,5 +272,13 @@ class TTB_Social_DB {
       'ua'        => $ua,
       'created_at'=> self::now(),
     ]);
+  }
+
+  /**
+   * Limpia todos los registros de auditoría.
+   */
+  public static function clear_audit() {
+    global $wpdb;
+    $wpdb->query("TRUNCATE TABLE " . self::audit_table());
   }
 }

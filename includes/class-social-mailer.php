@@ -10,7 +10,6 @@ class TTB_Social_Mailer {
   public function send_welcome($client) {
     $emails = $this->parse_emails($client->emails);
     if (!$emails) return;
-    // URL inteligente: si tiene sesión → ctab=social; si no → portal token
     $url     = $this->smart_url($client->token);
     $subject = 'Tu portal de Redes Sociales está listo — TicTac Comunicación';
     $message = $this->tpl_welcome($client->name, $url);
@@ -18,15 +17,53 @@ class TTB_Social_Mailer {
     foreach ($emails as $email) wp_mail(trim($email), $subject, $message, $headers);
   }
 
-  public function send_post_approval($client, $post) {
+  /**
+   * Notificación semanal: envía un email agrupando todos los posts de la semana.
+   * Recibe un array de posts (puede ser 1 o varios).
+   */
+  public function send_week_approval($client, $posts) {
     $emails = $this->parse_emails($client->emails);
     if (!$emails) return;
-    // URL inteligente: si tiene sesión → ctab=social; si no → portal token
-    $url            = $this->smart_url($client->token);
-    $date_formatted = date_i18n('l, j \d\e F \d\e Y', strtotime($post->scheduled_date));
-    $subject        = 'Creatividad lista para revisar — ' . $date_formatted . ' — TicTac Comunicación';
-    $message        = $this->tpl_approval($client->name, $url, $post, $date_formatted);
-    $headers        = ['Content-Type: text/html; charset=UTF-8'];
+
+    $url = $this->smart_url($client->token);
+
+    // Calcular rango de fechas
+    $dates = array_map(fn($p) => $p->scheduled_date, $posts);
+    sort($dates);
+    $first_date = date_i18n('d/m', strtotime($dates[0]));
+    $last_date  = date_i18n('d/m', strtotime(end($dates)));
+    $count      = count($posts);
+
+    if ($first_date === $last_date) {
+      $range_label = $first_date;
+    } else {
+      $range_label = $first_date . ' al ' . $last_date;
+    }
+
+    $subject = $count > 1
+      ? 'Tienes ' . $count . ' publicaciones para revisar (' . $range_label . ') — TicTac Comunicación'
+      : 'Creatividad lista para revisar (' . $range_label . ') — TicTac Comunicación';
+
+    $message = $this->tpl_week_approval($client->name, $url, $posts, $range_label);
+    $headers = ['Content-Type: text/html; charset=UTF-8'];
+    foreach ($emails as $email) wp_mail(trim($email), $subject, $message, $headers);
+  }
+
+  /**
+   * Recordatorio víspera: se publica mañana y aún no está aprobado.
+   */
+  public function send_eve_reminder($client, $posts) {
+    $emails = $this->parse_emails($client->emails);
+    if (!$emails) return;
+
+    $url   = $this->smart_url($client->token);
+    $count = count($posts);
+
+    $subject = '⚠️ ' . ($count > 1 ? $count . ' publicaciones se publican MAÑANA' : 'Tu publicación se publica MAÑANA')
+             . ' — TicTac Comunicación';
+
+    $message = $this->tpl_eve_reminder($client->name, $url, $posts);
+    $headers = ['Content-Type: text/html; charset=UTF-8'];
     foreach ($emails as $email) wp_mail(trim($email), $subject, $message, $headers);
   }
 
@@ -57,19 +94,17 @@ class TTB_Social_Mailer {
     foreach ($to as $email) wp_mail($email, $subject, $message, $headers);
   }
 
+  // Mantener compatibilidad: si alguien llama send_post_approval (método antiguo)
+  public function send_post_approval($client, $post) {
+    $this->send_week_approval($client, [$post]);
+  }
+
   public function parse_emails($raw) {
     $decoded = json_decode($raw, true);
     if (is_array($decoded)) return array_filter($decoded, 'is_email');
     return array_filter(array_map('trim', explode(',', (string)$raw)), 'is_email');
   }
 
-  /**
-   * Genera la URL inteligente para los emails al cliente.
-   * Usa ?ttb_social_entry=TOKEN — el portal principal detecta este parámetro:
-   *   - Si el usuario tiene sesión activa → redirige a ctab=social (portal con pestañas)
-   *   - Si no tiene sesión               → redirige a ?social=TOKEN (portal independiente de token)
-   * Así el cliente siempre llega al sitio correcto sin importar si está logueado o no.
-   */
   private function smart_url($token) {
     return home_url('/briefing?ttb_social_entry=' . urlencode($token));
   }
@@ -124,12 +159,12 @@ class TTB_Social_Mailer {
                <p style="margin:0;color:rgba(255,255,255,.85);font-size:14px">Revisa publicaciones y comparte tu contenido con nosotros</p>';
     $body = '
       <p style="margin:0 0 6px;font-size:17px;color:#1a1a2e;font-weight:700">Hola, <span style="color:' . $pink . '">' . esc_html($name) . '</span></p>
-      <p style="margin:0 0 22px;font-size:15px;color:#4b5563;line-height:1.6">Hemos creado tu espacio para gestionar las redes sociales con TicTac. Desde aqu&iacute; podr&aacute;s:</p>
+      <p style="margin:0 0 22px;font-size:15px;color:#4b5563;line-height:1.6">Hemos creado tu espacio para gestionar las redes sociales con TicTac.</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:12px;margin-bottom:24px">
         <tr><td style="padding:18px 20px">
           <p style="margin:0 0 8px;font-size:14px;color:#4b5563;line-height:1.5">&#x2714;&#xFE0F;&nbsp; Subir fotos y v&iacute;deos para tus publicaciones.</p>
           <p style="margin:0 0 8px;font-size:14px;color:#4b5563;line-height:1.5">&#x2714;&#xFE0F;&nbsp; Ver el calendario con las publicaciones programadas.</p>
-          <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">&#x2714;&#xFE0F;&nbsp; Aprobar o pedir cambios en las creatividades antes de publicarlas.</p>
+          <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">&#x2714;&#xFE0F;&nbsp; Aprobar o pedir cambios en las creatividades.</p>
         </td></tr>
       </table>
       <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px">
@@ -149,48 +184,41 @@ class TTB_Social_Mailer {
     return $this->wrap($header, $body);
   }
 
-  private function tpl_approval($name, $url, $post, $date_formatted) {
-    $pink     = $this->pink;
-    $is_video = ($post->post_type === 'video') || $this->is_video_url($post->creative_url ?? '');
+  /**
+   * Email semanal: muestra todos los posts de la semana en un solo email.
+   */
+  private function tpl_week_approval($name, $url, $posts, $range_label) {
+    $pink  = $this->pink;
+    $count = count($posts);
 
-    $header = '<h1 style="margin:0 0 6px;color:#fff;font-size:20px;font-weight:900">Creatividad lista para revisar</h1>
-               <p style="margin:0;color:rgba(255,255,255,.85);font-size:14px">' . esc_html($date_formatted) . '</p>';
+    $header = '<h1 style="margin:0 0 6px;color:#fff;font-size:20px;font-weight:900">' . ($count > 1 ? $count . ' publicaciones para revisar' : 'Creatividad lista para revisar') . '</h1>
+               <p style="margin:0;color:rgba(255,255,255,.85);font-size:14px">Semana del ' . esc_html($range_label) . '</p>';
 
-    $creative_html = '';
-    if ($post->creative_url) {
-      if ($is_video) {
-        $creative_html = '
-          <div style="border-radius:12px;overflow:hidden;margin-bottom:20px;background:#1a1a2e;padding:32px 24px;text-align:center">
-            <p style="margin:0 0 8px;font-size:36px">&#x1F3AC;</p>
-            <p style="margin:0 0 6px;font-size:16px;font-weight:900;color:#fff">Creatividad en v&iacute;deo</p>
-            <p style="margin:0 0 16px;font-size:13px;color:rgba(255,255,255,.7)">Accede al portal para reproducir y revisar el v&iacute;deo</p>
-            <a href="' . esc_url($url) . '" target="_blank" rel="noopener"
-               style="display:inline-block;background:' . $pink . ';color:#fff;text-decoration:none;
-                      font-weight:900;font-size:14px;padding:12px 28px;border-radius:10px">
-              Ver v&iacute;deo en el portal &rarr;
-            </a>
-          </div>';
-      } else {
-        $creative_html = '
-          <div style="border-radius:12px;overflow:hidden;margin-bottom:20px;border:1px solid #f3f4f6">
-            <img src="' . esc_url($post->creative_url) . '" style="width:100%;max-height:400px;object-fit:cover;display:block" alt="Creatividad">
-          </div>';
+    $posts_html = '';
+    foreach ($posts as $i => $post) {
+      $date_fmt  = date_i18n('l j \d\e F', strtotime($post->scheduled_date));
+      $is_video  = ($post->post_type === 'video') || $this->is_video_url($post->creative_url ?? '');
+      $copy_text = $post->copy_text ?? '';
+
+      $posts_html .= '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin-bottom:' . ($i < $count - 1 ? '16px' : '0') . '">';
+      $posts_html .= '<p style="margin:0 0 4px;font-size:11px;font-weight:900;color:' . $pink . ';text-transform:uppercase;letter-spacing:.06em">&#x1F4CC; Post ' . ($i + 1) . ' de ' . $count . '</p>';
+      $posts_html .= '<p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#1a1a2e;text-transform:capitalize">' . esc_html($date_fmt) . '</p>';
+
+      if ($post->creative_url && !$is_video) {
+        $posts_html .= '<div style="border-radius:10px;overflow:hidden;margin-bottom:12px;border:1px solid #e5e7eb"><img src="' . esc_url($post->creative_url) . '" style="width:100%;max-height:300px;object-fit:cover;display:block" alt="Creatividad"></div>';
+      } elseif ($is_video) {
+        $posts_html .= '<div style="background:#1a1a2e;border-radius:10px;padding:20px;text-align:center;margin-bottom:12px"><p style="margin:0;font-size:28px">&#x1F3AC;</p><p style="margin:6px 0 0;color:#fff;font-size:13px;font-weight:700">V&iacute;deo — ver en el portal</p></div>';
       }
-    }
 
-    $caption_html = '';
-    if ($post->caption) {
-      $caption_html = '<div style="background:#f9fafb;border-radius:10px;padding:14px 18px;margin-bottom:18px;border-left:3px solid ' . $pink . '">
-        <p style="margin:0 0 4px;font-size:11px;font-weight:900;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">Texto de la publicaci&oacute;n</p>
-        <p style="margin:0;font-size:15px;color:#1a1a2e;line-height:1.7;white-space:pre-line">' . esc_html($post->caption) . '</p>
-      </div>';
-    }
+      if ($copy_text) {
+        $posts_html .= '<div style="border-left:3px solid ' . $pink . ';padding:8px 14px;margin-bottom:10px;font-size:14px;color:#1a1a2e;line-height:1.6;white-space:pre-line">' . esc_html(mb_substr($copy_text, 0, 200)) . (mb_strlen($copy_text) > 200 ? '...' : '') . '</div>';
+      }
 
-    $note_html = '';
-    if ($post->creative_note) {
-      $note_html = '<div style="background:#fdf4ff;border-radius:10px;padding:12px 16px;margin-bottom:18px;border:1px solid #e9d5ff">
-        <p style="margin:0;font-size:14px;color:#7e22ce;line-height:1.6">' . esc_html($post->creative_note) . '</p>
-      </div>';
+      if ($post->creative_note) {
+        $posts_html .= '<p style="margin:0;font-size:13px;color:#7e22ce;background:#fdf4ff;border-radius:8px;padding:8px 12px;border:1px solid #e9d5ff">' . esc_html($post->creative_note) . '</p>';
+      }
+
+      $posts_html .= '</div>';
     }
 
     $body = '
@@ -198,12 +226,12 @@ class TTB_Social_Mailer {
         Hola, <span style="color:' . $pink . '">' . esc_html($name) . '</span>
       </p>
       <p style="margin:0 0 22px;font-size:15px;color:#4b5563;line-height:1.6">
-        Hemos preparado la creatividad para tu publicaci&oacute;n del <strong>' . esc_html($date_formatted) . '</strong>.
-        Rev&iacute;sala y danos el OK o cu&eacute;ntanos qu&eacute; cambiar&iacute;as.
+        Hemos preparado ' . ($count > 1 ? 'las creatividades de la semana' : 'la creatividad') . ' del <strong>' . esc_html($range_label) . '</strong>.
+        Rev&iacute;sala' . ($count > 1 ? 's' : '') . ' y danos el OK o cu&eacute;ntanos qu&eacute; cambiar&iacute;as.
       </p>
-      ' . $creative_html . '
-      ' . $caption_html . '
-      ' . $note_html . '
+      <div style="margin-bottom:24px">
+        ' . $posts_html . '
+      </div>
       <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px">
         <tr><td align="center">
           <a href="' . esc_url($url) . '" target="_blank" rel="noopener"
@@ -218,6 +246,49 @@ class TTB_Social_Mailer {
         Si el bot&oacute;n no funciona:<br>
         <a href="' . esc_url($url) . '" style="color:' . $pink . ';word-break:break-all">' . esc_url($url) . '</a>
       </p>';
+
+    return $this->wrap($header, $body);
+  }
+
+  /**
+   * Email de recordatorio de víspera.
+   */
+  private function tpl_eve_reminder($name, $url, $posts) {
+    $pink  = $this->pink;
+    $count = count($posts);
+
+    $header = '<h1 style="margin:0 0 6px;color:#fff;font-size:20px;font-weight:900">&#x26A0;&#xFE0F; Se publica' . ($count > 1 ? 'n' : '') . ' MA&Ntilde;ANA</h1>
+               <p style="margin:0;color:rgba(255,255,255,.85);font-size:14px">' . $count . ' publicaci&oacute;n' . ($count > 1 ? 'es pendiente' . 's' : ' pendiente') . ' de aprobaci&oacute;n</p>';
+
+    $list_html = '';
+    foreach ($posts as $post) {
+      $date_fmt = date_i18n('l j \d\e F', strtotime($post->scheduled_date));
+      $copy_preview = mb_substr($post->copy_text ?? '', 0, 80);
+      $list_html .= '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 16px;margin-bottom:10px">';
+      $list_html .= '<p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#9a3412">' . esc_html($date_fmt) . '</p>';
+      if ($copy_preview) $list_html .= '<p style="margin:0;font-size:13px;color:#c2410c;line-height:1.5">' . esc_html($copy_preview) . ($post->copy_text && mb_strlen($post->copy_text) > 80 ? '...' : '') . '</p>';
+      $list_html .= '</div>';
+    }
+
+    $body = '
+      <p style="margin:0 0 18px;font-size:16px;color:#1a1a2e;font-weight:700">
+        Hola, <span style="color:' . $pink . '">' . esc_html($name) . '</span>
+      </p>
+      <p style="margin:0 0 20px;font-size:15px;color:#4b5563;line-height:1.6">
+        Tienes ' . $count . ' publicaci&oacute;n' . ($count > 1 ? 'es' : '') . ' programada' . ($count > 1 ? 's' : '') . ' para <strong>ma&ntilde;ana</strong> que a&uacute;n no ha' . ($count > 1 ? 'n' : '') . ' sido aprobada' . ($count > 1 ? 's' : '') . '.
+        Para que podamos publicar a tiempo, necesitamos tu aprobaci&oacute;n hoy.
+      </p>
+      <div style="margin-bottom:24px">' . $list_html . '</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px">
+        <tr><td align="center">
+          <a href="' . esc_url($url) . '" target="_blank" rel="noopener"
+             style="display:inline-block;background:linear-gradient(135deg,#ea580c,#c2410c);
+                    color:#fff;text-decoration:none;font-weight:900;font-size:16px;
+                    padding:16px 36px;border-radius:14px;box-shadow:0 8px 24px rgba(234,88,12,.35)">
+            Aprobar ahora &rarr;
+          </a>
+        </td></tr>
+      </table>';
 
     return $this->wrap($header, $body);
   }

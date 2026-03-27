@@ -3,11 +3,12 @@ if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_Client')) return;
 
 /**
- * TTB_Social_Client — v4
+ * TTB_Social_Client — v6
  * Fixes:
- *  - Toda la interacción permanece dentro de la pestaña del portal principal
- *  - Detecta ttb_return=main para redirigir al portal principal tras acciones POST
- *  - URLs de navegación y formularios adaptadas según contexto (portal principal vs. acceso directo)
+ *  - Modal propio para detalle de post (no depende del admin)
+ *  - Botón "pedir cambios" funciona correctamente dentro del modal clonado
+ *  - copy_text en vez de caption
+ *  - Sin campo hora
  */
 class TTB_Social_Client {
 
@@ -31,7 +32,6 @@ class TTB_Social_Client {
 
     TTB_Social_DB::log($client->id, null, 'client_view', 'client', []);
 
-    // ── Detectar si venimos del portal principal ──────────────────────
     $is_main_portal = (($_GET['ttb_return'] ?? '') === 'main');
 
     $tab          = sanitize_text_field($_GET['stab'] ?? 'calendar');
@@ -45,9 +45,6 @@ class TTB_Social_Client {
     $next_month = date('Y-m', strtotime('+1 month', $first_day));
     $month_name = date_i18n('F Y', $first_day);
 
-    // ── URLs base según contexto ──────────────────────────────────────
-    // Portal principal: navegación dentro de /briefing con ctab=social
-    // Acceso directo:   navegación en /briefing?social=TOKEN
     if ($is_main_portal) {
       $nav_base    = home_url('/briefing?ctab=social');
       $form_action = esc_url(home_url('/briefing'));
@@ -61,12 +58,11 @@ class TTB_Social_Client {
     $content_table = TTB_Social_DB::content_table();
     $statuses      = TTB_Social_DB::post_statuses();
 
-    // Posts del mes (solo no-borrador)
     $posts_raw = $wpdb->get_results($wpdb->prepare(
       "SELECT * FROM $posts_table
        WHERE client_id=%d AND status != 'draft'
          AND YEAR(scheduled_date)=%d AND MONTH(scheduled_date)=%d
-       ORDER BY scheduled_time ASC",
+       ORDER BY scheduled_date ASC",
       $client->id, $year, $month
     ));
 
@@ -75,13 +71,11 @@ class TTB_Social_Client {
       $posts_by_day[(int)date('j', strtotime($p->scheduled_date))][] = $p;
     }
 
-    // Todos los pendientes (cualquier mes)
     $all_pending = $wpdb->get_results($wpdb->prepare(
       "SELECT * FROM $posts_table WHERE client_id=%d AND status='pending_approval' ORDER BY scheduled_date ASC",
       $client->id
     ));
 
-    // Contenido previo
     $client_content = $wpdb->get_results($wpdb->prepare(
       "SELECT * FROM $content_table WHERE client_id=%d ORDER BY created_at DESC LIMIT 50",
       $client->id
@@ -98,7 +92,47 @@ class TTB_Social_Client {
     .ttb-preview-item { position:relative; border-radius:10px; overflow:hidden; border:1px solid var(--ttb-border); background:#f0f0f0; aspect-ratio:1; }
     .ttb-preview-item img, .ttb-preview-item video { width:100%; height:100%; object-fit:cover; display:block; }
     .ttb-preview-remove { position:absolute; top:5px; right:5px; background:#e11d48; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:10px; font-weight:900; cursor:pointer; line-height:20px; text-align:center; }
+
+    /* ── Modal detalle post (cliente) ── */
+    .ttbc-post-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.5);
+      backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+      display:none; align-items:center; justify-content:center;
+      z-index:99999; padding:16px;
+    }
+    .ttbc-post-overlay.active { display:flex; }
+    .ttbc-post-modal {
+      background:#fff; border-radius:20px; padding:28px 24px;
+      max-width:540px; width:100%; max-height:85vh; overflow-y:auto;
+      box-shadow:0 24px 64px rgba(0,0,0,.22); position:relative;
+      animation: ttbcModalIn .3s cubic-bezier(.34,1.56,.64,1) both;
+    }
+    @keyframes ttbcModalIn {
+      from { opacity:0; transform:translateY(20px) scale(.96); }
+      to   { opacity:1; transform:translateY(0) scale(1); }
+    }
+    .ttbc-post-modal::before {
+      content:''; position:absolute; top:0; left:0; right:0; height:4px;
+      background:linear-gradient(90deg,var(--ttb-pink),#e63a86);
+      border-radius:20px 20px 0 0;
+    }
+    .ttbc-post-close {
+      position:absolute; top:14px; right:16px;
+      background:#f3f4f6; border:none; border-radius:50%;
+      width:32px; height:32px; font-size:16px; cursor:pointer;
+      line-height:32px; text-align:center; color:var(--ttb-muted);
+      transition: background .15s;
+    }
+    .ttbc-post-close:hover { background:#e5e7eb; }
     </style>
+
+    <!-- ═══ MODAL DETALLE POST (cliente) ═══ -->
+    <div class="ttbc-post-overlay" id="ttbc-post-overlay">
+      <div class="ttbc-post-modal">
+        <button class="ttbc-post-close" id="ttbc-post-close" type="button">✕</button>
+        <div id="ttbc-post-body"></div>
+      </div>
+    </div>
 
     <div class="ttb-container">
       <div class="ttb-card ttb-card--header">
@@ -115,7 +149,6 @@ class TTB_Social_Client {
         </div>
       <?php endif; ?>
 
-      <!-- Tabs -->
       <div class="ttb-social-tabs">
         <a href="<?php echo esc_url($nav_base . '&stab=calendar&filter_month=' . urlencode($filter_month)); ?>"
            class="ttb-social-tab <?php echo $tab === 'calendar' ? 'ttb-social-tab--active' : ''; ?>">Mis publicaciones</a>
@@ -126,7 +159,6 @@ class TTB_Social_Client {
       <?php if ($tab === 'calendar'): ?>
 
         <div class="ttb-card">
-          <!-- Navegación mes -->
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
             <a href="<?php echo esc_url($nav_base . '&stab=calendar&filter_month=' . $prev_month); ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">&#8592;</a>
             <h3 style="margin:0;font-size:18px;text-transform:capitalize"><?php echo esc_html($month_name); ?></h3>
@@ -134,10 +166,7 @@ class TTB_Social_Client {
           </div>
 
           <?php
-          // Store de posts en el DOM (para el modal)
           self::render_client_posts_store($posts_raw, $token, $statuses, $is_main_portal, $form_action);
-
-          // Grid del calendario (mismo helper que el admin, is_admin=false)
           TTB_Social_Admin::render_calendar_grid(
             $posts_by_day, $days_in, $start_dow,
             $year, $month,
@@ -146,7 +175,6 @@ class TTB_Social_Client {
           );
           ?>
 
-          <!-- Leyenda -->
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;font-size:12px">
             <?php foreach ([
               ['#fffbeb','#fde68a','#92400e','Pendiente tu aprobación'],
@@ -164,7 +192,6 @@ class TTB_Social_Client {
 
       <?php else: ?>
 
-        <!-- Subir contenido -->
         <div class="ttb-card">
           <h3 style="margin:0 0 6px">Envíanos tu contenido</h3>
           <p class="ttb-muted" style="margin:0 0 18px">Sube fotos o vídeos que quieras usar en tus publicaciones, o escríbenos una idea.</p>
@@ -228,8 +255,65 @@ class TTB_Social_Client {
     </div>
 
     <script>
-    // ── Drag & Drop subida ─────────────────────────────────
     (function(){
+      /* ═══════════════════════════════════════════
+         MODAL DETALLE POST
+         Sobreescribe ttbOpenPostDetail del admin grid
+         Usa data-attributes para reconectar el botón reject
+      ═══════════════════════════════════════════ */
+      var overlay  = document.getElementById('ttbc-post-overlay');
+      var body     = document.getElementById('ttbc-post-body');
+      var closeBtn = document.getElementById('ttbc-post-close');
+
+      if (overlay) {
+        window.ttbOpenPostDetail = function(postId) {
+          var store = document.getElementById('ttb-client-post-data-' + postId);
+          if (!store) return;
+
+          body.innerHTML = '';
+          var clone = store.cloneNode(true);
+          clone.style.display = 'block';
+          clone.removeAttribute('id');
+
+          // Reconectar botón "pedir cambios" en el clon
+          var rejectToggle = clone.querySelector('[data-reject-toggle]');
+          var rejectForm   = clone.querySelector('[data-reject-form]');
+          if (rejectToggle && rejectForm) {
+            rejectToggle.addEventListener('click', function() {
+              rejectForm.style.display = 'block';
+              rejectToggle.style.display = 'none';
+              // Hacer scroll al textarea dentro del modal
+              var textarea = rejectForm.querySelector('textarea');
+              if (textarea) {
+                setTimeout(function() { textarea.focus(); }, 100);
+              }
+            });
+          }
+
+          body.appendChild(clone);
+          body.querySelectorAll('video').forEach(function(v) { v.load(); });
+          overlay.classList.add('active');
+          document.body.style.overflow = 'hidden';
+        };
+
+        window.ttbClosePostDetail = function() {
+          overlay.querySelectorAll('video').forEach(function(v) { v.pause(); });
+          overlay.classList.remove('active');
+          document.body.style.overflow = '';
+        };
+
+        closeBtn.addEventListener('click', ttbClosePostDetail);
+        overlay.addEventListener('click', function(e) {
+          if (e.target === overlay) ttbClosePostDetail();
+        });
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape' && overlay.classList.contains('active')) ttbClosePostDetail();
+        });
+      }
+
+      /* ═══════════════════════════════════════════
+         UPLOAD — drag & drop
+      ═══════════════════════════════════════════ */
       var MAX_MB  = <?php echo (int)get_option('ttb_social_max_filesize', 50); ?>;
       var files   = [];
       var dz      = document.getElementById('ttb-social-dropzone');
@@ -287,9 +371,9 @@ class TTB_Social_Client {
   }
 
   /**
-   * Renderiza el HTML de cada post en divs ocultos #ttb-client-post-data-{id}
-   * El JS del calendario los clona al abrir el modal.
-   * Acepta $is_main_portal y $form_action para adaptar URLs y formularios.
+   * Store de posts oculto en el DOM.
+   * USA data-attributes (data-reject-toggle, data-reject-form)
+   * en vez de IDs para que funcione al clonar dentro del modal.
    */
   private static function render_client_posts_store($posts, $token, $statuses, $is_main_portal = false, $form_action = '') {
     if (!$form_action) {
@@ -299,21 +383,19 @@ class TTB_Social_Client {
     echo '<div id="ttb-client-posts-store" style="display:none">';
     foreach ($posts as $post) {
       [$sl,$sbg,$sbc,$sco] = $statuses[$post->status] ?? ['—','#f3f4f6','#e5e7eb','#374151'];
-      $date_fmt = date_i18n('l, j \d\e F \d\e Y', strtotime($post->scheduled_date));
-      $time_str = $post->scheduled_time ? ' · ' . substr($post->scheduled_time, 0, 5) . 'h' : '';
+      $date_fmt  = date_i18n('l, j \d\e F \d\e Y', strtotime($post->scheduled_date));
+      $copy_text = $post->copy_text ?? '';
 
       ob_start();
       ?>
       <div id="ttb-client-post-data-<?php echo (int)$post->id; ?>" style="display:none">
-        <!-- Cabecera -->
         <div style="margin-bottom:14px">
           <div style="margin-bottom:6px">
             <span style="display:inline-block;font-size:12px;font-weight:800;padding:4px 12px;border-radius:999px;background:<?php echo $sbg; ?>;border:1px solid <?php echo $sbc; ?>;color:<?php echo $sco; ?>"><?php echo esc_html($sl); ?></span>
           </div>
-          <p style="margin:0;font-size:14px;font-weight:700;color:var(--ttb-text)"><?php echo esc_html($date_fmt . $time_str); ?></p>
+          <p style="margin:0;font-size:16px;font-weight:800;color:var(--ttb-text)"><?php echo esc_html($date_fmt); ?></p>
         </div>
 
-        <!-- Creatividad -->
         <?php if ($post->creative_url): ?>
           <?php $is_vid = in_array(strtolower(pathinfo($post->creative_url, PATHINFO_EXTENSION)), ['mp4','mov','webm'], true); ?>
           <div style="border-radius:12px;overflow:hidden;margin-bottom:14px;border:1px solid var(--ttb-border)">
@@ -327,17 +409,14 @@ class TTB_Social_Client {
           </div>
         <?php endif; ?>
 
-        <!-- Caption -->
-        <?php if ($post->caption): ?>
-          <div style="background:#f9fafb;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;white-space:pre-line;border-left:3px solid var(--ttb-pink)"><?php echo esc_html($post->caption); ?></div>
+        <?php if ($copy_text): ?>
+          <div style="background:#f9fafb;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;white-space:pre-line;border-left:3px solid var(--ttb-pink)"><?php echo esc_html($copy_text); ?></div>
         <?php endif; ?>
 
-        <!-- Nota del equipo -->
         <?php if ($post->creative_note): ?>
           <div style="background:#fdf4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7e22ce;border:1px solid #e9d5ff"><?php echo esc_html($post->creative_note); ?></div>
         <?php endif; ?>
 
-        <!-- Comentario propio (si rechazó) -->
         <?php if ($post->status === 'rejected' && $post->client_note): ?>
           <div style="background:#fff1f2;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#be123c;border:1px solid #fecdd3">
             <strong style="display:block;margin-bottom:4px">Tu comentario:</strong>
@@ -345,12 +424,10 @@ class TTB_Social_Client {
           </div>
         <?php endif; ?>
 
-        <!-- Acciones (solo si pendiente de aprobación) -->
         <?php if ($post->status === 'pending_approval'): ?>
           <div style="border-top:1px solid var(--ttb-border);margin-top:16px;padding-top:16px">
-            <p style="margin:0 0 12px;font-size:13px;font-weight:700;color:var(--ttb-text)">¿Qué quieres hacer con esta publicación?</p>
+            <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:var(--ttb-text)">¿Qué quieres hacer con esta publicación?</p>
 
-            <!-- Aprobar -->
             <form method="post" action="<?php echo $form_action; ?>" style="margin-bottom:10px">
               <?php wp_nonce_field('ttb_social_approve_' . (int)$post->id . '_' . $token); ?>
               <input type="hidden" name="ttb_social_action" value="approve">
@@ -358,42 +435,42 @@ class TTB_Social_Client {
               <input type="hidden" name="post_id" value="<?php echo (int)$post->id; ?>">
               <input type="hidden" name="ttb_return" value="<?php echo $is_main_portal ? 'main' : ''; ?>">
               <button class="ttb-btn" type="submit" style="background:linear-gradient(135deg,#10b981,#059669);width:100%">
-                Aprobar esta publicación
+                ✅ Aprobar esta publicación
               </button>
             </form>
 
-            <!-- Rechazar con comentario -->
-            <div id="ttb-reject-toggle-<?php echo (int)$post->id; ?>">
-              <button type="button" class="ttb-btn ttb-btn--ghost" style="width:100%;color:#e11d48;border-color:#fecdd3"
-                onclick="
-                  document.getElementById('ttb-reject-form-<?php echo (int)$post->id; ?>').style.display='block';
-                  this.style.display='none';
-                ">
-                Tengo cambios que pedir
-              </button>
-            </div>
-            <div id="ttb-reject-form-<?php echo (int)$post->id; ?>" style="display:none;margin-top:10px">
+            <!-- REJECT: data-attributes en vez de IDs para que funcione al clonar -->
+            <button type="button" class="ttb-btn ttb-btn--ghost" data-reject-toggle
+              style="width:100%;color:#e11d48;border-color:#fecdd3">
+              ✏️ Tengo cambios que pedir
+            </button>
+
+            <div data-reject-form style="display:none;margin-top:12px">
               <form method="post" action="<?php echo $form_action; ?>">
                 <?php wp_nonce_field('ttb_social_approve_' . (int)$post->id . '_' . $token); ?>
                 <input type="hidden" name="ttb_social_action" value="reject">
                 <input type="hidden" name="ttb_social_token" value="<?php echo esc_attr($token); ?>">
                 <input type="hidden" name="post_id" value="<?php echo (int)$post->id; ?>">
                 <input type="hidden" name="ttb_return" value="<?php echo $is_main_portal ? 'main' : ''; ?>">
-                <textarea name="client_note" class="ttb-textarea" style="min-height:80px;margin-bottom:10px"
-                  placeholder="Cuéntanos qué cambiarías: imagen, texto, tono, color... Con detalle nos ayudas a acertar." required></textarea>
+                <label style="display:block;font-weight:700;font-size:13px;color:var(--ttb-text);margin-bottom:6px">
+                  Cuéntanos qué cambiarías:
+                </label>
+                <textarea name="client_note" class="ttb-textarea" style="min-height:100px;margin-bottom:10px"
+                  placeholder="Imagen, texto, tono, color... Con detalle nos ayudas a acertar." required></textarea>
                 <button class="ttb-btn" type="submit" style="background:linear-gradient(135deg,#e11d48,#be123c);width:100%">
-                  Enviar comentarios
+                  📨 Enviar comentarios
                 </button>
               </form>
             </div>
           </div>
+
         <?php elseif ($post->status === 'approved'): ?>
-          <div style="background:#ecfdf5;border-radius:10px;padding:12px 14px;margin-top:14px;border:1px solid #6ee7b7;font-size:14px;color:#065f46;font-weight:700">
-            Has aprobado esta publicación. ¡Gracias!
+          <div style="background:#ecfdf5;border-radius:10px;padding:14px 16px;margin-top:14px;border:1px solid #6ee7b7;font-size:14px;color:#065f46;font-weight:700;text-align:center">
+            ✅ Has aprobado esta publicación. ¡Gracias!
           </div>
         <?php elseif ($post->status === 'published'): ?>
-          <div style="background:#eff6ff;border-radius:10px;padding:12px 14px;margin-top:14px;border:1px solid #bfdbfe;font-size:14px;color:#1d4ed8;font-weight:700">
-            Esta publicación ya está publicada.
+          <div style="background:#eff6ff;border-radius:10px;padding:14px 16px;margin-top:14px;border:1px solid #bfdbfe;font-size:14px;color:#1d4ed8;font-weight:700;text-align:center">
+            📢 Esta publicación ya está publicada.
           </div>
         <?php endif; ?>
       </div>
@@ -404,7 +481,6 @@ class TTB_Social_Client {
   }
 
   private static function js_redirect($url) {
-    // Si venimos del portal principal, redirigir siempre al portal con ctab=social
     $return = sanitize_text_field($_POST['ttb_return'] ?? $_GET['ttb_return'] ?? '');
     if ($return === 'main') {
       $stab = sanitize_text_field($_POST['stab'] ?? $_GET['stab'] ?? 'calendar');
@@ -489,7 +565,6 @@ class TTB_Social_Client {
       TTB_Social_DB::log($client->id, null, 'content_uploaded', 'client', ['files' => $uploaded]);
     }
 
-    // Redirigir a la pestaña de contenido (respetando contexto)
     $return = sanitize_text_field($_POST['ttb_return'] ?? '');
     if ($return === 'main') {
       $_POST['ttb_return'] = 'main';
