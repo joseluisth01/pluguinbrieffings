@@ -3,12 +3,8 @@ if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_Client')) return;
 
 /**
- * TTB_Social_Client — v6
- * Fixes:
- *  - Modal propio para detalle de post (no depende del admin)
- *  - Botón "pedir cambios" funciona correctamente dentro del modal clonado
- *  - copy_text en vez de caption
- *  - Sin campo hora
+ * TTB_Social_Client — v7
+ * Añadida pestaña "Calendario Editorial" integrada con TTB_Social_Editorial_Client.
  */
 class TTB_Social_Client {
 
@@ -27,6 +23,12 @@ class TTB_Social_Client {
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ttb_social_action'])) {
       self::handle_post($client, $token);
+      return;
+    }
+
+    // POST del calendario editorial (aprobar/rechazar mes)
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ttb_ed_client_action'])) {
+      TTB_Social_Editorial_Client::render($client, $token, false);
       return;
     }
 
@@ -84,8 +86,9 @@ class TTB_Social_Client {
     ?>
     <style>
     .ttb-social-tabs { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0 18px; }
-    .ttb-social-tab { text-decoration:none; padding:10px 20px; border-radius:999px; border:1px solid var(--ttb-border); background:#fff; color:var(--ttb-text); font-weight:800; font-size:14px; }
+    .ttb-social-tab { text-decoration:none; padding:10px 20px; border-radius:999px; border:1px solid var(--ttb-border); background:#fff; color:var(--ttb-text); font-weight:800; font-size:14px; transition:background .15s,border-color .15s,color .15s; }
     .ttb-social-tab--active { background:rgba(215,33,115,.10); border-color:rgba(215,33,115,.35); color:var(--ttb-pink); }
+    .ttb-social-tab:hover:not(.ttb-social-tab--active) { border-color:rgba(215,33,115,.25); color:var(--ttb-pink); background:rgba(215,33,115,.04); }
     .ttb-dropzone { border:2px dashed var(--ttb-border); border-radius:14px; padding:36px 20px; text-align:center; cursor:pointer; background:#fafafa; transition:border-color .2s, background .2s; }
     .ttb-dropzone:hover, .ttb-dropzone.dragover { border-color:var(--ttb-pink); background:rgba(215,33,115,.03); }
     .ttb-preview-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; margin-top:12px; }
@@ -140,7 +143,7 @@ class TTB_Social_Client {
         <p class="ttb-muted">Hola, <strong><?php echo esc_html($client->name); ?></strong>. Aquí tienes tus publicaciones y puedes enviarnos contenido.</p>
       </div>
 
-      <?php if (!empty($all_pending)): ?>
+      <?php if (!empty($all_pending) && $tab === 'calendar'): ?>
         <div class="ttb-card" style="border-color:rgba(215,33,115,.35);background:rgba(215,33,115,.03)">
           <h3 style="margin:0 0 4px;color:var(--ttb-pink)">
             Tienes <?php echo count($all_pending); ?> publicación<?php echo count($all_pending) > 1 ? 'es' : ''; ?> pendiente<?php echo count($all_pending) > 1 ? 's' : ''; ?> de aprobación
@@ -151,9 +154,17 @@ class TTB_Social_Client {
 
       <div class="ttb-social-tabs">
         <a href="<?php echo esc_url($nav_base . '&stab=calendar&filter_month=' . urlencode($filter_month)); ?>"
-           class="ttb-social-tab <?php echo $tab === 'calendar' ? 'ttb-social-tab--active' : ''; ?>">Mis publicaciones</a>
+           class="ttb-social-tab <?php echo $tab === 'calendar' ? 'ttb-social-tab--active' : ''; ?>">
+          📆 Mis publicaciones
+        </a>
+        <a href="<?php echo esc_url($nav_base . '&stab=editorial'); ?>"
+           class="ttb-social-tab <?php echo $tab === 'editorial' ? 'ttb-social-tab--active' : ''; ?>">
+          📅 Calendario Editorial
+        </a>
         <a href="<?php echo esc_url($nav_base . '&stab=content'); ?>"
-           class="ttb-social-tab <?php echo $tab === 'content' ? 'ttb-social-tab--active' : ''; ?>">Enviar contenido</a>
+           class="ttb-social-tab <?php echo $tab === 'content' ? 'ttb-social-tab--active' : ''; ?>">
+          📎 Enviar contenido
+        </a>
       </div>
 
       <?php if ($tab === 'calendar'): ?>
@@ -189,6 +200,10 @@ class TTB_Social_Client {
             <?php endforeach; ?>
           </div>
         </div>
+
+      <?php elseif ($tab === 'editorial'): ?>
+
+        <?php TTB_Social_Editorial_Client::render($client, $token, $is_main_portal); ?>
 
       <?php else: ?>
 
@@ -258,8 +273,6 @@ class TTB_Social_Client {
     (function(){
       /* ═══════════════════════════════════════════
          MODAL DETALLE POST
-         Sobreescribe ttbOpenPostDetail del admin grid
-         Usa data-attributes para reconectar el botón reject
       ═══════════════════════════════════════════ */
       var overlay  = document.getElementById('ttbc-post-overlay');
       var body     = document.getElementById('ttbc-post-body');
@@ -275,18 +288,14 @@ class TTB_Social_Client {
           clone.style.display = 'block';
           clone.removeAttribute('id');
 
-          // Reconectar botón "pedir cambios" en el clon
           var rejectToggle = clone.querySelector('[data-reject-toggle]');
           var rejectForm   = clone.querySelector('[data-reject-form]');
           if (rejectToggle && rejectForm) {
             rejectToggle.addEventListener('click', function() {
               rejectForm.style.display = 'block';
               rejectToggle.style.display = 'none';
-              // Hacer scroll al textarea dentro del modal
               var textarea = rejectForm.querySelector('textarea');
-              if (textarea) {
-                setTimeout(function() { textarea.focus(); }, 100);
-              }
+              if (textarea) setTimeout(function() { textarea.focus(); }, 100);
             });
           }
 
@@ -372,8 +381,6 @@ class TTB_Social_Client {
 
   /**
    * Store de posts oculto en el DOM.
-   * USA data-attributes (data-reject-toggle, data-reject-form)
-   * en vez de IDs para que funcione al clonar dentro del modal.
    */
   private static function render_client_posts_store($posts, $token, $statuses, $is_main_portal = false, $form_action = '') {
     if (!$form_action) {
@@ -439,7 +446,6 @@ class TTB_Social_Client {
               </button>
             </form>
 
-            <!-- REJECT: data-attributes en vez de IDs para que funcione al clonar -->
             <button type="button" class="ttb-btn ttb-btn--ghost" data-reject-toggle
               style="width:100%;color:#e11d48;border-color:#fecdd3">
               ✏️ Tengo cambios que pedir
@@ -483,7 +489,7 @@ class TTB_Social_Client {
   private static function js_redirect($url) {
     $return = sanitize_text_field($_POST['ttb_return'] ?? $_GET['ttb_return'] ?? '');
     if ($return === 'main') {
-      $stab = sanitize_text_field($_POST['stab'] ?? $_GET['stab'] ?? 'calendar');
+      $stab         = sanitize_text_field($_POST['stab'] ?? $_GET['stab'] ?? 'calendar');
       $filter_month = sanitize_text_field($_POST['filter_month'] ?? $_GET['filter_month'] ?? date('Y-m'));
       $url = home_url('/briefing?ctab=social&stab=' . urlencode($stab) . '&filter_month=' . urlencode($filter_month));
     }

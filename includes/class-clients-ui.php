@@ -14,6 +14,8 @@ if (class_exists('TTB_Clients_UI')) return;
  *            El email de bienvenida al portal de redes se enviará automáticamente
  *            cuando el cliente envíe (submit) su prebriefing de redes (en class-forms.php).
  * - Error 4: La URL de autologin usa rawurlencode para soportar cualquier carácter.
+ * - NUEVO: Opción "Saltar prebriefing" para clientes existentes que no necesitan
+ *          rellenar el formulario inicial y acceden directamente a los módulos.
  */
 class TTB_Clients_UI {
 
@@ -114,10 +116,11 @@ private static function sync_social_clients() {
     if (!isset($_POST['ttb_central_client_create'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_central_client_create')) return;
 
-    $name     = sanitize_text_field($_POST['client_name']  ?? '');
-    $emails   = self::sanitize_emails($_POST['client_emails'] ?? []);
-    $lang     = in_array($_POST['client_lang'] ?? '', ['es', 'en'], true) ? $_POST['client_lang'] : 'es';
-    $services = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
+    $name          = sanitize_text_field($_POST['client_name']  ?? '');
+    $emails        = self::sanitize_emails($_POST['client_emails'] ?? []);
+    $lang          = in_array($_POST['client_lang'] ?? '', ['es', 'en'], true) ? $_POST['client_lang'] : 'es';
+    $services      = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
+    $skip_briefing = !empty($_POST['skip_briefing']);
 
     if (!$name || empty($emails)) {
       self::flash_and_redirect('error', 'Nombre y al menos un email son obligatorios.');
@@ -150,36 +153,43 @@ private static function sync_social_clients() {
 
     $new_client_id = (int)$wpdb->insert_id;
 
-    // FIX Error 3: Si tiene servicio "social", crear el registro en ttb_social_clients
-    // para que aparezca en el módulo de Redes Sociales.
-    // IMPORTANTE: NO se envía email de bienvenida aquí. El email al portal de redes
-    // se envía automáticamente en class-forms.php cuando el cliente entrega
-    // su prebriefing de redes sociales.
+    // ── SALTAR PREBRIEFING ──────────────────────────────────────────
+    // Si se marca "Saltar prebriefing", insertamos registros en ttb_answers
+    // con sent=1 para todos los servicios, desbloqueando directamente los módulos.
+    // NO se envía email de prebriefing en este caso.
+    if ($skip_briefing && $new_client_id && !empty($services)) {
+      self::mark_all_briefings_as_sent($new_client_id, $services, $lang);
+    }
+    // ─────────────────────────────────────────────────────────────────
+
+    // Si tiene servicio "social", crear el registro en ttb_social_clients
     if (in_array('social', $services, true) && $new_client_id) {
       self::maybe_create_social_client($new_client_id, $name, $emails);
     }
 
-    // FIX Error 1: Enviar el email de prebriefing a TODOS los emails del cliente
-    if (!empty($services)) {
+    // Solo enviar email de acceso si NO se salta el prebriefing
+    if (!$skip_briefing && !empty($services)) {
       self::send_access_to_all_emails($name, $emails, $username, $password, $services, $lang);
+      self::flash_and_redirect('success', 'Cliente creado y email de acceso enviado.',
+        home_url('/briefing?section=clientes'));
+    } else {
+      self::flash_and_redirect('success', 'Cliente creado. Módulos desbloqueados directamente (sin prebriefing).',
+        home_url('/briefing?section=clientes'));
     }
-
-    // FIX Error 2: redirigir explícitamente para que cargue la lista
-    self::flash_and_redirect('success', 'Cliente creado y email de acceso enviado.',
-      home_url('/briefing?section=clientes'));
   }
 
   private static function handle_edit() {
     if (!isset($_POST['ttb_central_client_edit'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_central_client_edit')) return;
 
-    $client_id = (int)($_POST['client_id'] ?? 0);
+    $client_id     = (int)($_POST['client_id'] ?? 0);
     if (!$client_id) return;
 
-    $name     = sanitize_text_field($_POST['client_name']  ?? '');
-    $emails   = self::sanitize_emails($_POST['client_emails'] ?? []);
-    $lang     = in_array($_POST['client_lang'] ?? '', ['es', 'en'], true) ? $_POST['client_lang'] : 'es';
-    $services = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
+    $name          = sanitize_text_field($_POST['client_name']  ?? '');
+    $emails        = self::sanitize_emails($_POST['client_emails'] ?? []);
+    $lang          = in_array($_POST['client_lang'] ?? '', ['es', 'en'], true) ? $_POST['client_lang'] : 'es';
+    $services      = array_map('sanitize_text_field', (array)($_POST['services'] ?? []));
+    $skip_briefing = !empty($_POST['skip_briefing']);
 
     if (!$name || empty($emails)) {
       self::flash_and_redirect('error', 'Nombre y al menos un email son obligatorios.');
@@ -202,9 +212,20 @@ private static function sync_social_clients() {
       self::maybe_create_social_client($client_id, $name, $emails);
     }
 
+    // ── SALTAR PREBRIEFING EN EDICIÓN ───────────────────────────────
+    // Si se marca en edición, desbloquea los servicios que aún no tenían sent=1.
+    if ($skip_briefing && !empty($services)) {
+      self::mark_all_briefings_as_sent($client_id, $services, $lang);
+    }
+    // ─────────────────────────────────────────────────────────────────
+
     self::propagate_update($client_id, $name, $emails);
 
-    self::flash_and_redirect('success', 'Cliente actualizado correctamente.',
+    $msg = $skip_briefing
+      ? 'Cliente actualizado. Módulos desbloqueados directamente (sin prebriefing).'
+      : 'Cliente actualizado correctamente.';
+
+    self::flash_and_redirect('success', $msg,
       home_url('/briefing?section=clientes'));
   }
 
@@ -239,8 +260,6 @@ private static function sync_social_clients() {
     $lang     = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
     $emails   = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
 
-    // FIX Error 1: reenviar a todos los emails. Solo se reenvía el prebriefing,
-    // NO el email del portal de redes.
     self::send_access_to_all_emails(
       (string)$c->name,
       $emails,
@@ -255,12 +274,64 @@ private static function sync_social_clients() {
   }
 
   /* ════════════════════════════════════════
-     FIX Error 1: Envío a TODOS los emails
+     NUEVO: Marcar prebriefings como enviados
+     (desbloquea módulos sin que el cliente
+     tenga que rellenar nada)
   ════════════════════════════════════════ */
 
   /**
-   * Envía el email de acceso al prebriefing a todos los emails del cliente.
+   * Inserta registros en ttb_answers con sent=1 para todos los servicios indicados.
+   * Solo crea el registro si no existe ya (no sobreescribe respuestas reales).
+   * También actualiza el status del cliente a 'enviado'.
    */
+  private static function mark_all_briefings_as_sent($client_id, $services, $lang = 'es') {
+    global $wpdb;
+    $table = TTB_DB::answers_table();
+
+    foreach ($services as $svc) {
+      // Comprobar si ya existe un registro
+      $existing = $wpdb->get_row($wpdb->prepare(
+        "SELECT id, sent FROM $table WHERE client_id=%d AND service=%s",
+        $client_id, $svc
+      ));
+
+      if ($existing) {
+        // Si ya existe pero no estaba marcado como enviado, lo marcamos
+        if ((int)$existing->sent !== 1) {
+          $wpdb->update($table, [
+            'sent'       => 1,
+            'updated_at' => TTB_DB::now(),
+          ], ['id' => (int)$existing->id]);
+        }
+        // Si ya estaba sent=1, no hacemos nada
+      } else {
+        // Crear registro vacío con sent=1
+        $empty_answers = wp_json_encode([
+          'ttb_skip_briefing' => '1',
+          'note'              => 'Prebriefing saltado por el administrador.',
+        ], JSON_UNESCAPED_UNICODE);
+
+        $wpdb->insert($table, [
+          'client_id'  => $client_id,
+          'service'    => $svc,
+          'answers'    => $empty_answers,
+          'sent'       => 1,
+          'updated_at' => TTB_DB::now(),
+        ]);
+      }
+    }
+
+    // Actualizar status del cliente
+    $wpdb->update(TTB_DB::clients_table(), [
+      'status'     => 'enviado',
+      'updated_at' => TTB_DB::now(),
+    ], ['id' => $client_id]);
+  }
+
+  /* ════════════════════════════════════════
+     FIX Error 1: Envío a TODOS los emails
+  ════════════════════════════════════════ */
+
   private static function send_access_to_all_emails($name, $emails, $username, $password, $services, $lang) {
     $mailer = new TTB_Mailer();
     foreach ($emails as $email) {
@@ -273,12 +344,6 @@ private static function sync_social_clients() {
      FIX Error 3: Crear registro social SIN email
   ════════════════════════════════════════ */
 
-  /**
-   * Crea (o actualiza) el registro en ttb_social_clients vinculado al cliente central.
-   *
-   * NUNCA envía el email de bienvenida al portal de redes desde aquí.
-   * El email de bienvenida lo gestiona class-forms.php al hacer submit del prebriefing.
-   */
   public static function maybe_create_social_client($client_id, $name, $emails) {
     global $wpdb;
     $sc_table = TTB_Social_DB::clients_table();
@@ -289,7 +354,6 @@ private static function sync_social_clients() {
     ));
 
     if ($existing) {
-      // Ya existe: solo sincronizar nombre y emails
       $wpdb->update($sc_table, [
         'name'       => $name,
         'emails'     => wp_json_encode(array_values($emails)),
@@ -298,7 +362,6 @@ private static function sync_social_clients() {
       return;
     }
 
-    // Crear nuevo registro. Sin send_welcome() — ese email se dispara en class-forms.php
     $token = TTB_Social_DB::generate_token();
 
     $wpdb->insert($sc_table, [
@@ -437,12 +500,39 @@ private static function sync_social_clients() {
     }
     echo '</div></div>';
 
+    // ── OPCIÓN: SALTAR PREBRIEFING ─────────────────────────────────
+    echo '<div style="margin-top:18px;background:linear-gradient(135deg,#fff7ed,#fffbeb);border:2px solid #fed7aa;border-radius:16px;padding:16px 20px">';
+    echo '<label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer">';
+    echo '<input type="checkbox" name="skip_briefing" value="1" id="ttb-skip-briefing-create" style="margin-top:3px;width:18px;height:18px;flex-shrink:0;accent-color:#ea580c">';
+    echo '<span>';
+    echo '<strong style="font-size:14px;color:#9a3412;display:block;margin-bottom:4px">⏭️ Saltar paso de prebriefing</strong>';
+    echo '<span style="font-size:13px;color:#c2410c;line-height:1.5;display:block">Activa esta opción para clientes que ya conocemos y no necesitan rellenar el formulario de prebriefing. Se desbloquearán directamente los módulos de revisión de diseño, redes sociales y web. <strong>No se enviará el email de prebriefing.</strong></span>';
+    echo '</span></label>';
+    echo '</div>';
+    // ──────────────────────────────────────────────────────────────
+
     echo '<div class="ttb-actions">';
-    echo '<button class="ttb-btn" name="ttb_central_client_create" value="1">Crear cliente y enviar acceso</button>';
+    echo '<button class="ttb-btn" name="ttb_central_client_create" value="1" id="ttb-create-btn">Crear cliente y enviar acceso</button>';
     echo '</div>';
     echo '</form>';
 
     self::email_js('ttb-cc-emails-create');
+
+    // JS para actualizar el texto del botón según el checkbox
+    ?>
+    <script>
+    (function(){
+      var cb  = document.getElementById('ttb-skip-briefing-create');
+      var btn = document.getElementById('ttb-create-btn');
+      if (!cb || !btn) return;
+      cb.addEventListener('change', function(){
+        btn.textContent = cb.checked
+          ? 'Crear cliente (sin prebriefing)'
+          : 'Crear cliente y enviar acceso';
+      });
+    })();
+    </script>
+    <?php
   }
 
   /* ════════════════════════════════════════
@@ -452,6 +542,7 @@ private static function sync_social_clients() {
   private static function render_list() {
     global $wpdb;
     $table   = TTB_DB::clients_table();
+    $answers = TTB_DB::answers_table();
     $clients = $wpdb->get_results("SELECT * FROM $table ORDER BY created_at DESC LIMIT 200");
 
     $edit_id = (int)($_GET['edit_cc'] ?? 0);
@@ -466,6 +557,17 @@ private static function sync_social_clients() {
       $edit_lang     = in_array($edit_c->lang ?? '', ['es', 'en'], true) ? $edit_c->lang : 'es';
       $cancel_url    = esc_url(home_url('/briefing?section=clientes'));
       $action_url    = esc_url(home_url('/briefing?section=clientes'));
+
+      // Comprobar si ya tiene todos los prebriefings marcados como enviados
+      $all_sent = false;
+      if (!empty($edit_services)) {
+        $sent_count = (int)$wpdb->get_var($wpdb->prepare(
+          "SELECT COUNT(*) FROM $answers WHERE client_id=%d AND sent=1 AND service IN (" .
+          implode(',', array_fill(0, count($edit_services), '%s')) . ")",
+          array_merge([$edit_c->id], $edit_services)
+        ));
+        $all_sent = ($sent_count >= count($edit_services));
+      }
 
       echo '<div class="ttb-modal-overlay" id="ttbCcEditModal" role="dialog" aria-modal="true" style="display:flex">';
       echo '<div class="ttb-modal ttb-edit-modal" style="max-width:560px">';
@@ -504,6 +606,23 @@ private static function sync_social_clients() {
       }
       echo '</div></div>';
 
+      // ── OPCIÓN: SALTAR PREBRIEFING EN EDICIÓN ─────────────────────
+      if (!$all_sent) {
+        echo '<div style="margin-top:14px;background:linear-gradient(135deg,#fff7ed,#fffbeb);border:2px solid #fed7aa;border-radius:14px;padding:14px 18px">';
+        echo '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">';
+        echo '<input type="checkbox" name="skip_briefing" value="1" style="margin-top:2px;width:16px;height:16px;flex-shrink:0;accent-color:#ea580c">';
+        echo '<span>';
+        echo '<strong style="font-size:13px;color:#9a3412;display:block;margin-bottom:3px">⏭️ Desbloquear módulos sin prebriefing</strong>';
+        echo '<span style="font-size:12px;color:#c2410c;line-height:1.5;display:block">Marca como enviado el prebriefing de los servicios pendientes, desbloqueando los módulos directamente.</span>';
+        echo '</span></label>';
+        echo '</div>';
+      } else {
+        echo '<div style="margin-top:14px;background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:14px;padding:12px 16px">';
+        echo '<p style="margin:0;font-size:13px;color:#065f46;font-weight:700">✅ Todos los módulos ya están desbloqueados.</p>';
+        echo '</div>';
+      }
+      // ──────────────────────────────────────────────────────────────
+
       echo '<div class="ttb-actions" style="margin-top:16px">';
       echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
       echo '<button class="ttb-btn" name="ttb_central_client_edit" value="1">Guardar cambios</button>';
@@ -528,7 +647,7 @@ private static function sync_social_clients() {
     $service_names = ['design' => 'Diseño', 'social' => 'Redes', 'seo' => 'SEO', 'web' => 'Web', 'reservas' => 'Reservas'];
 
     echo '<div class="ttb-tablewrap"><table class="ttb-table"><thead><tr>';
-    echo '<th>Cliente</th><th>Emails</th><th>Idioma</th><th>Servicios</th><th>Estado</th><th>Acciones</th>';
+    echo '<th>Cliente</th><th>Emails</th><th>Idioma</th><th>Servicios</th><th>Estado</th><th>Prebriefing</th><th>Acciones</th>';
     echo '</tr></thead><tbody>';
 
     foreach ($clients as $c) {
@@ -543,6 +662,23 @@ private static function sync_social_clients() {
           . ($service_icons[$s] ?? $s) . '</span>';
       }
 
+      // Indicador de estado del prebriefing
+      $briefing_indicator = '';
+      if (!empty($sv)) {
+        $sent_count = (int)$wpdb->get_var($wpdb->prepare(
+          "SELECT COUNT(*) FROM $answers WHERE client_id=%d AND sent=1",
+          (int)$c->id
+        ));
+        $total_svc = count($sv);
+        if ($sent_count >= $total_svc) {
+          $briefing_indicator = '<span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46">✅ Completo</span>';
+        } elseif ($sent_count > 0) {
+          $briefing_indicator = '<span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#fffbeb;border:1px solid #fde68a;color:#92400e">' . $sent_count . '/' . $total_svc . ' servicios</span>';
+        } else {
+          $briefing_indicator = '<span style="display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#f3f4f6;border:1px solid #e5e7eb;color:#6b7280">⏳ Pendiente</span>';
+        }
+      }
+
       echo '<tr>';
       echo '<td><strong>' . esc_html($c->name) . '</strong>';
       echo '<br><small style="color:var(--ttb-muted);font-family:monospace;font-size:11px">' . esc_html($c->username) . '</small></td>';
@@ -550,6 +686,7 @@ private static function sync_social_clients() {
       echo '<td>' . ($c_lang === 'en' ? '🇬🇧 EN' : '🇪🇸 ES') . '</td>';
       echo '<td>' . ($sv_badges ?: '<span style="color:var(--ttb-muted)">—</span>') . '</td>';
       echo '<td><span class="ttb-status ' . ($status_cls[$c->status] ?? '') . '">' . esc_html($status_labels[$c->status] ?? $c->status) . '</span></td>';
+      echo '<td>' . $briefing_indicator . '</td>';
       echo '<td><div class="ttb-row-actions">';
 
       echo '<a href="' . esc_url(home_url('/briefing?section=briefings&tab=answers&client=' . (int)$c->id)) . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">📋 Respuestas</a>';

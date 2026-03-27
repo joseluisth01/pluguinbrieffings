@@ -332,12 +332,14 @@ class TTB_Client_UI {
         echo ' <span class="ttbc-tab-badge ttbc-badge-lock">🔒</span>';
         echo '</span>';
       } elseif ($state === 'wip') {
+        // wip: para social, si tiene token mostramos el portal igualmente
+        // para design/web sin proyecto, mostramos estado de espera pero tab accesible
         echo '<a class="ttbc-tab' . $tab_active . '" href="' . esc_url(add_query_arg('ctab', $cfg['tab_key'], $base_url)) . '">';
         echo $cfg['icon'] . ' ' . esc_html($cfg['label']);
         echo ' <span class="ttbc-tab-badge ttbc-badge-wip">⚙️</span>';
         echo '</a>';
       } else {
-        // ready: puede tener múltiples proyectos
+        // ready
         $count = count($module_states[$svc . '_projects'] ?? []);
         echo '<a class="ttbc-tab' . $tab_active . '" href="' . esc_url(add_query_arg('ctab', $cfg['tab_key'], $base_url)) . '">';
         echo $cfg['icon'] . ' ' . esc_html($cfg['label']);
@@ -371,7 +373,6 @@ class TTB_Client_UI {
       } elseif ($state === 'wip') {
         self::render_wip($t, $svc, $lang);
       } else {
-        // Ready: render multiple projects
         self::render_module_projects($svc, $module_states, $t, $lang);
       }
 
@@ -382,7 +383,7 @@ class TTB_Client_UI {
   }
 
   /* ════════════════════════════════════════════════════
-     ESTADO DE MÓDULOS — Soporte multi-proyecto
+     ESTADO DE MÓDULOS
   ════════════════════════════════════════════════════ */
 
   private static function get_module_states($client_id, $services, $wpdb) {
@@ -403,7 +404,6 @@ class TTB_Client_UI {
 
       switch ($svc) {
         case 'design':
-          // Buscar TODOS los proyectos de diseño de este cliente
           $client_name = $wpdb->get_var($wpdb->prepare(
             "SELECT name FROM " . TTB_DB::clients_table() . " WHERE id=%d LIMIT 1",
             $client_id
@@ -423,9 +423,14 @@ class TTB_Client_UI {
             "SELECT id, token FROM " . TTB_Social_DB::clients_table() . " WHERE ttb_client_id=%d LIMIT 1",
             $client_id
           ));
+
           if ($sc_client) {
-            $states[$svc . '_state']           = 'ready';
-            $states['social_token']            = $sc_client->token;
+            // ── CAMBIO CLAVE: si hay token social, siempre 'ready'
+            // Independientemente de si hay posts publicados o no.
+            // El portal de social gestiona el estado vacío mostrando las pestañas.
+            $states[$svc . '_state'] = 'ready';
+            $states['social_token']  = $sc_client->token;
+            // has_posts ya no controla si se muestra el portal o no
             $has_posts = (int)$wpdb->get_var($wpdb->prepare(
               "SELECT COUNT(*) FROM " . TTB_Social_DB::posts_table() . " WHERE client_id=%d AND status != 'draft'",
               (int)$sc_client->id
@@ -437,7 +442,6 @@ class TTB_Client_UI {
           break;
 
         case 'web':
-          // Buscar TODOS los proyectos web de este cliente
           $client_name = $client_name ?? $wpdb->get_var($wpdb->prepare(
             "SELECT name FROM " . TTB_DB::clients_table() . " WHERE id=%d LIMIT 1",
             $client_id
@@ -504,7 +508,7 @@ class TTB_Client_UI {
   }
 
   /* ════════════════════════════════════════════════════
-     PANEL: MÓDULO EN PROGRESO
+     PANEL: MÓDULO EN PROGRESO (design / web sin proyecto)
   ════════════════════════════════════════════════════ */
 
   private static function render_wip($t, $svc, $lang) {
@@ -534,52 +538,28 @@ class TTB_Client_UI {
   }
 
   /* ════════════════════════════════════════════════════
-     PANEL: SOCIAL — portal activo pero sin posts aún
-  ════════════════════════════════════════════════════ */
-
-  private static function render_social_waiting($t, $token, $lang) {
-    $wip_msg = [
-      'es' => 'Nuestro equipo de redes está elaborando tu estrategia de contenidos. En cuanto tengamos la primera publicación lista te avisaremos. Mientras tanto, puedes enviarnos fotos o ideas.',
-      'en' => 'Our social media team is developing your content strategy. As soon as the first publication is ready we will let you know. In the meantime, you can send us photos or ideas.',
-    ];
-    $btn_content = ['es' => 'Enviar contenido al equipo →', 'en' => 'Send content to the team →'];
-    $msg = $wip_msg[$lang] ?? $wip_msg['es'];
-    $btn = $btn_content[$lang] ?? $btn_content['es'];
-    $content_url = esc_url(home_url('/briefing?ctab=social&stab=content'));
-
-    echo '<div class="ttb-card">';
-    echo '<div class="ttbc-wip-box">';
-    echo '<span class="ttbc-wip-icon">⚙️</span>';
-    echo '<h3>' . esc_html($t['wip_title']) . '</h3>';
-    echo '<p>' . esc_html($msg) . '</p>';
-    echo '<div class="ttbc-progress"><div class="ttbc-progress-bar"></div></div>';
-    echo '<div style="margin-top:24px"><a href="' . $content_url . '" class="ttb-btn">' . esc_html($btn) . '</a></div>';
-    echo '</div></div>';
-  }
-
-  /* ════════════════════════════════════════════════════
-     PANEL: MÚLTIPLES PROYECTOS
-     Renderiza todos los proyectos del módulo.
-     El primero (más reciente) expandido, los demás plegados.
+     PANEL: MÚLTIPLES PROYECTOS / SOCIAL
   ════════════════════════════════════════════════════ */
 
   private static function render_module_projects($svc, $module_states, $t, $lang) {
 
-    // Social: caso especial (no tiene multi-proyecto)
+    // ── SOCIAL: siempre renderiza el portal completo ─────────────
+    // Tanto si hay posts como si no, TTB_Social_Client::render() se encarga
+    // de mostrar las pestañas (Mis publicaciones, Calendario Editorial, Enviar contenido)
+    // y gestionar el estado vacío internamente.
     if ($svc === 'social') {
-      $token     = $module_states['social_token'] ?? '';
-      $has_posts = $module_states['social_has_posts'] ?? false;
-      if (!$token) { self::render_wip($t, $svc, $lang); return; }
-      if (!$has_posts) {
-        self::render_social_waiting($t, $token, $lang);
-      } else {
-        $_GET['ttb_return'] = 'main';
-        TTB_Social_Client::render($token);
+      $token = $module_states['social_token'] ?? '';
+      if (!$token) {
+        self::render_wip($t, $svc, $lang);
+        return;
       }
+      // Pasar flag para que el portal sepa que está embebido en el portal principal
+      $_GET['ttb_return'] = 'main';
+      TTB_Social_Client::render($token);
       return;
     }
 
-    // Design o Web: multi-proyecto
+    // ── Design / Web: multi-proyecto ─────────────────────────────
     $projects = $module_states[$svc . '_projects'] ?? [];
     if (empty($projects)) {
       self::render_wip($t, $svc, $lang);
@@ -605,7 +585,6 @@ class TTB_Client_UI {
       $project_id = (int)$project->id;
       $block_id   = 'ttbc-proj-' . $svc . '-' . $project_id;
 
-      // Determinar título visible
       $display_title = '';
       if (!empty($project->title)) {
         $display_title = $project->title;
@@ -619,12 +598,10 @@ class TTB_Client_UI {
       }
 
       [$sl, $sbg, $sbc, $sco] = $statuses[$project->status] ?? ['—','#f3f4f6','#e5e7eb','#374151'];
-
       $date_fmt = date_i18n('d/m/Y', strtotime($project->created_at));
 
       echo '<div class="ttbc-project-block' . ($is_first ? ' ttbc-project-block--active' : '') . '" id="' . esc_attr($block_id) . '">';
 
-      // Header (clickable para plegar/desplegar)
       echo '<div class="ttbc-project-header" onclick="ttbcToggleProject(\'' . esc_js($block_id) . '\')" role="button" tabindex="0" onkeydown="if(event.key===\'Enter\'||event.key===\' \')ttbcToggleProject(\'' . esc_js($block_id) . '\')">';
       echo '<div class="ttbc-project-header-left">';
       echo '<span class="ttbc-project-title">' . esc_html($display_title) . '</span>';
@@ -641,12 +618,10 @@ class TTB_Client_UI {
       echo '<button type="button" class="ttbc-project-toggle-btn" id="' . esc_attr($block_id) . '-btn">' . $btn_label . '</button>';
       echo '</div>';
 
-      // Body (expandido si es el primero, plegado si no)
       $initial_class = $is_first ? 'expanded' : 'collapsed';
       $initial_style = $is_first ? 'max-height:9999px;' : 'max-height:0;';
       echo '<div class="ttbc-project-body ' . $initial_class . '" id="' . esc_attr($block_id) . '-body" style="' . $initial_style . '">';
 
-      // Renderizar el contenido del proyecto
       if ($svc === 'design') {
         TTB_WebRev_Client::render($project->token);
       } else {
@@ -667,7 +642,6 @@ class TTB_Client_UI {
         if (!body) return;
 
         var isCollapsed = body.classList.contains(\'collapsed\');
-        var isActive    = block.classList.contains(\'ttbc-project-block--active\');
         var labelShow   = \'' . esc_js($t['show_project']) . '\';
         var labelHide   = \'' . esc_js($t['hide_project']) . '\';
 

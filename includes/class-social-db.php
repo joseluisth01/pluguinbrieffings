@@ -4,7 +4,7 @@ if (class_exists('TTB_Social_DB')) return;
 
 class TTB_Social_DB {
 
-  const SCHEMA_VERSION = 2; // v2: week_group en posts
+  const SCHEMA_VERSION = 3; // v3: tabla editorial calendar
 
   public static function clients_table() {
     global $wpdb;
@@ -26,15 +26,21 @@ class TTB_Social_DB {
     return $wpdb->prefix . 'ttb_social_audit';
   }
 
+  public static function editorial_table() {
+    global $wpdb;
+    return $wpdb->prefix . 'ttb_social_editorial';
+  }
+
   public static function create_tables() {
     global $wpdb;
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     $charset = $wpdb->get_charset_collate();
 
-    $clients = self::clients_table();
-    $content = self::content_table();
-    $posts   = self::posts_table();
-    $audit   = self::audit_table();
+    $clients  = self::clients_table();
+    $content  = self::content_table();
+    $posts    = self::posts_table();
+    $audit    = self::audit_table();
+    $editorial = self::editorial_table();
 
     $sql1 = "CREATE TABLE $clients (
       id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -108,13 +114,34 @@ class TTB_Social_DB {
       KEY created_idx (created_at)
     ) $charset;";
 
+    // v3: Tabla del calendario editorial mensual
+    $sql5 = "CREATE TABLE $editorial (
+      id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      client_id      BIGINT UNSIGNED NOT NULL,
+      entry_date     DATE NOT NULL,
+      pilar          VARCHAR(255) NOT NULL DEFAULT '',
+      gancho         TEXT NULL,
+      month_status   VARCHAR(20) NOT NULL DEFAULT 'draft',
+      client_note    TEXT NULL,
+      notified_at    DATETIME NULL,
+      created_at     DATETIME NOT NULL,
+      updated_at     DATETIME NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY client_date (client_id, entry_date),
+      KEY client_idx (client_id),
+      KEY date_idx (entry_date),
+      KEY month_status_idx (month_status)
+    ) $charset;";
+
     dbDelta($sql1);
     dbDelta($sql2);
     dbDelta($sql3);
     dbDelta($sql4);
+    dbDelta($sql5);
 
     self::migrate_add_ttb_client_id();
     self::migrate_v2();
+    self::migrate_v3();
 
     update_option('ttb_social_schema_version', self::SCHEMA_VERSION);
   }
@@ -131,33 +158,37 @@ class TTB_Social_DB {
     }
   }
 
-  /**
-   * v2: añade week_group a posts, renombra caption→copy_text
-   */
   private static function migrate_v2() {
     global $wpdb;
     $table = self::posts_table();
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
     if (!$table_exists) return;
 
-    // Añadir week_group si no existe
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'week_group'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `week_group` VARCHAR(20) NULL AFTER `creative_note`");
       $wpdb->query("ALTER TABLE `$table` ADD KEY `week_group_idx` (`week_group`)");
     }
 
-    // Renombrar caption → copy_text si aún existe caption
     $col_caption = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'caption'");
     $col_copy    = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'copy_text'");
     if (!empty($col_caption) && empty($col_copy)) {
       $wpdb->query("ALTER TABLE `$table` CHANGE `caption` `copy_text` LONGTEXT NULL");
     }
 
-    // Eliminar scheduled_time si existe (ya no se usa)
     $col_time = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'scheduled_time'");
     if (!empty($col_time)) {
       $wpdb->query("ALTER TABLE `$table` DROP COLUMN `scheduled_time`");
+    }
+  }
+
+  // v3: crear tabla editorial si no existe (para installs ya activas)
+  private static function migrate_v3() {
+    global $wpdb;
+    $table = self::editorial_table();
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) {
+      self::create_tables(); // dbDelta la creará en la siguiente pasada
     }
   }
 
@@ -188,25 +219,16 @@ class TTB_Social_DB {
     return home_url('/briefing?social=' . urlencode($token));
   }
 
-  /**
-   * Calcula el week_group para una fecha dada.
-   * Formato: YYYY-Wnn (ej: 2026-W14)
-   * Usa semanas ISO (lunes = inicio de semana).
-   */
   public static function week_group_for_date($date_str) {
     $ts = strtotime($date_str);
     if (!$ts) return null;
-    return date('o-\\WW', $ts); // ISO year + week
+    return date('o-\\WW', $ts);
   }
 
-  /**
-   * Rango legible de una semana: "31/03 al 06/04"
-   */
   public static function week_range_label($week_group) {
     if (!$week_group || !preg_match('/^(\d{4})-W(\d{2})$/', $week_group, $m)) return $week_group;
     $year = (int)$m[1];
     $week = (int)$m[2];
-    // Lunes de esa semana
     $monday = new DateTime();
     $monday->setISODate($year, $week, 1);
     $sunday = clone $monday;
@@ -247,6 +269,65 @@ class TTB_Social_DB {
     ];
   }
 
+  // Estados del calendario editorial mensual
+  public static function editorial_month_statuses() {
+    return [
+      'draft'    => ['Borrador / Sin enviar', '#f3f4f6', '#e5e7eb', '#374151'],
+      'sent'     => ['Enviado al cliente',    '#fffbeb', '#fde68a', '#92400e'],
+      'approved' => ['Aprobado',              '#ecfdf5', '#6ee7b7', '#065f46'],
+      'rejected' => ['Rechazado',             '#fff1f2', '#fecdd3', '#be123c'],
+    ];
+  }
+
+  /**
+   * Obtiene el estado del mes editorial para un cliente y mes dado.
+   * $month: 'Y-m' ej: '2026-04'
+   */
+  public static function get_editorial_month_status($client_id, $month) {
+    global $wpdb;
+    $table = self::editorial_table();
+    [$year, $mon] = explode('-', $month);
+
+    // Si hay alguna entrada ese mes, tomamos el status de la primera (todos comparten el mismo estado mensual)
+    $row = $wpdb->get_row($wpdb->prepare(
+      "SELECT month_status, client_note, notified_at FROM $table
+       WHERE client_id=%d AND YEAR(entry_date)=%d AND MONTH(entry_date)=%d
+       LIMIT 1",
+      $client_id, (int)$year, (int)$mon
+    ));
+
+    return $row ?? null;
+  }
+
+  /**
+   * Actualiza el estado de todos los días de un mes editorial.
+   */
+  public static function set_editorial_month_status($client_id, $month, $status, $client_note = null) {
+    global $wpdb;
+    $table = self::editorial_table();
+    [$year, $mon] = explode('-', $month);
+
+    $update = ['month_status' => $status, 'updated_at' => self::now()];
+    if ($status === 'sent') $update['notified_at'] = self::now();
+    if ($client_note !== null) $update['client_note'] = $client_note;
+
+    $wpdb->query($wpdb->prepare(
+      "UPDATE $table SET month_status=%s, updated_at=%s " .
+      ($status === 'sent' ? ", notified_at=%s " : "") .
+      ($client_note !== null ? ", client_note=%s " : "") .
+      "WHERE client_id=%d AND YEAR(entry_date)=%d AND MONTH(entry_date)=%d",
+      ...array_values(array_filter([
+        $status,
+        self::now(),
+        $status === 'sent' ? self::now() : null,
+        $client_note !== null ? $client_note : null,
+        $client_id,
+        (int)$year,
+        (int)$mon,
+      ], fn($v) => $v !== null))
+    ));
+  }
+
   public static function log($client_id, $post_id, $event, $actor = 'system', $detail = []) {
     global $wpdb;
     $table = self::audit_table();
@@ -274,9 +355,6 @@ class TTB_Social_DB {
     ]);
   }
 
-  /**
-   * Limpia todos los registros de auditoría.
-   */
   public static function clear_audit() {
     global $wpdb;
     $wpdb->query("TRUNCATE TABLE " . self::audit_table());
