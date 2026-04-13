@@ -4,7 +4,7 @@ if (class_exists('TTB_Social_DB')) return;
 
 class TTB_Social_DB {
 
-  const SCHEMA_VERSION = 4; // v3: tabla editorial calendar
+  const SCHEMA_VERSION = 5; // v5: columna creative_urls (JSON array para múltiples archivos)
 
   public static function clients_table() {
     global $wpdb;
@@ -36,10 +36,10 @@ class TTB_Social_DB {
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     $charset = $wpdb->get_charset_collate();
 
-    $clients  = self::clients_table();
-    $content  = self::content_table();
-    $posts    = self::posts_table();
-    $audit    = self::audit_table();
+    $clients   = self::clients_table();
+    $content   = self::content_table();
+    $posts     = self::posts_table();
+    $audit     = self::audit_table();
     $editorial = self::editorial_table();
 
     $sql1 = "CREATE TABLE $clients (
@@ -51,6 +51,7 @@ class TTB_Social_DB {
       networks      LONGTEXT NULL,
       notes         TEXT NULL,
       status        VARCHAR(40) NOT NULL DEFAULT 'active',
+      kit_digital   TINYINT(1) NOT NULL DEFAULT 0,
       created_at    DATETIME NOT NULL,
       updated_at    DATETIME NOT NULL,
       PRIMARY KEY (id),
@@ -81,6 +82,7 @@ class TTB_Social_DB {
       post_type       VARCHAR(40) NOT NULL DEFAULT 'image',
       copy_text       LONGTEXT NULL,
       creative_url    TEXT NULL,
+      creative_urls   LONGTEXT NULL COMMENT 'JSON array con todas las URLs de archivos del post',
       creative_note   TEXT NULL,
       week_group      VARCHAR(20) NULL,
       status          VARCHAR(40) NOT NULL DEFAULT 'draft',
@@ -114,7 +116,6 @@ class TTB_Social_DB {
       KEY created_idx (created_at)
     ) $charset;";
 
-    // v3: Tabla del calendario editorial mensual
     $sql5 = "CREATE TABLE $editorial (
       id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       client_id      BIGINT UNSIGNED NOT NULL,
@@ -143,6 +144,7 @@ class TTB_Social_DB {
     self::migrate_v2();
     self::migrate_v3();
     self::migrate_v4();
+    self::migrate_v5();
 
     update_option('ttb_social_schema_version', self::SCHEMA_VERSION);
   }
@@ -150,8 +152,7 @@ class TTB_Social_DB {
   private static function migrate_add_ttb_client_id() {
     global $wpdb;
     $table = self::clients_table();
-    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
-    if (!$table_exists) return;
+    if (!$wpdb->get_var("SHOW TABLES LIKE '$table'")) return;
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'ttb_client_id'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `ttb_client_id` BIGINT UNSIGNED NULL AFTER `id`");
@@ -162,8 +163,7 @@ class TTB_Social_DB {
   private static function migrate_v2() {
     global $wpdb;
     $table = self::posts_table();
-    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
-    if (!$table_exists) return;
+    if (!$wpdb->get_var("SHOW TABLES LIKE '$table'")) return;
 
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'week_group'");
     if (empty($col)) {
@@ -183,26 +183,37 @@ class TTB_Social_DB {
     }
   }
 
-  // v3: crear tabla editorial si no existe (para installs ya activas)
   private static function migrate_v3() {
     global $wpdb;
     $table = self::editorial_table();
-    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
-    if (!$table_exists) {
-      self::create_tables(); // dbDelta la creará en la siguiente pasada
+    if (!$wpdb->get_var("SHOW TABLES LIKE '$table'")) {
+      self::create_tables();
     }
   }
 
   private static function migrate_v4() {
     global $wpdb;
     $table = self::clients_table();
-    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
-    if (!$table_exists) return;
+    if (!$wpdb->get_var("SHOW TABLES LIKE '$table'")) return;
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'kit_digital'");
     if (empty($col)) {
-        $wpdb->query("ALTER TABLE `$table` ADD COLUMN `kit_digital` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`");
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `kit_digital` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`");
     }
-}
+  }
+
+  /**
+   * v5: Añade columna creative_urls (JSON array) a ttb_social_posts.
+   * creative_url (singular) se conserva para retrocompatibilidad con posts existentes.
+   */
+  private static function migrate_v5() {
+    global $wpdb;
+    $table = self::posts_table();
+    if (!$wpdb->get_var("SHOW TABLES LIKE '$table'")) return;
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'creative_urls'");
+    if (empty($col)) {
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `creative_urls` LONGTEXT NULL AFTER `creative_url`");
+    }
+  }
 
   public static function run_migrations() {
     $current = (int) get_option('ttb_social_schema_version', 0);
@@ -248,6 +259,23 @@ class TTB_Social_DB {
     return $monday->format('d/m') . ' al ' . $sunday->format('d/m');
   }
 
+  /**
+   * Devuelve el array de URLs de archivos de un post.
+   * Soporta tanto el nuevo campo creative_urls (JSON array) como el legacy creative_url.
+   */
+  public static function get_post_creative_urls($post) {
+    if (!empty($post->creative_urls)) {
+      $decoded = json_decode($post->creative_urls, true);
+      if (is_array($decoded) && !empty($decoded)) {
+        return $decoded;
+      }
+    }
+    if (!empty($post->creative_url)) {
+      return [$post->creative_url];
+    }
+    return [];
+  }
+
   public static function networks() {
     return [
       'instagram' => ['Instagram',  '📸'],
@@ -281,7 +309,6 @@ class TTB_Social_DB {
     ];
   }
 
-  // Estados del calendario editorial mensual
   public static function editorial_month_statuses() {
     return [
       'draft'    => ['Borrador / Sin enviar', '#f3f4f6', '#e5e7eb', '#374151'],
@@ -291,16 +318,11 @@ class TTB_Social_DB {
     ];
   }
 
-  /**
-   * Obtiene el estado del mes editorial para un cliente y mes dado.
-   * $month: 'Y-m' ej: '2026-04'
-   */
   public static function get_editorial_month_status($client_id, $month) {
     global $wpdb;
     $table = self::editorial_table();
     [$year, $mon] = explode('-', $month);
 
-    // Si hay alguna entrada ese mes, tomamos el status de la primera (todos comparten el mismo estado mensual)
     $row = $wpdb->get_row($wpdb->prepare(
       "SELECT month_status, client_note, notified_at FROM $table
        WHERE client_id=%d AND YEAR(entry_date)=%d AND MONTH(entry_date)=%d
@@ -311,9 +333,6 @@ class TTB_Social_DB {
     return $row ?? null;
   }
 
-  /**
-   * Actualiza el estado de todos los días de un mes editorial.
-   */
   public static function set_editorial_month_status($client_id, $month, $status, $client_note = null) {
     global $wpdb;
     $table = self::editorial_table();

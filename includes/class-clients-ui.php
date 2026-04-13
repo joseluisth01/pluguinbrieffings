@@ -4,36 +4,25 @@ if (class_exists('TTB_Clients_UI')) return;
 
 /**
  * TTB_Clients_UI
- * Pestaña central de CLIENTES (posición 1 en el menú principal).
+ * Pestaña central de CLIENTES.
  *
- * FIXES aplicados:
- * - Error 1: El email de prebriefing se envía a TODOS los emails del cliente.
- * - Error 2: Tras crear/editar/borrar cliente la redirección fuerza la recarga correcta.
- * - Error 3: Al crear un cliente con servicio "social" se crea el registro en
- *            ttb_social_clients PERO SIN enviar el email de bienvenida al portal.
- *            El email de bienvenida al portal de redes se enviará automáticamente
- *            cuando el cliente envíe (submit) su prebriefing de redes (en class-forms.php).
- * - Error 4: La URL de autologin usa rawurlencode para soportar cualquier carácter.
- * - NUEVO: Opción "Saltar prebriefing" para clientes existentes que no necesitan
- *          rellenar el formulario inicial y acceden directamente a los módulos.
+ * Añadido: acción "Editar credenciales" para cambiar usuario y contraseña de acceso.
  */
 class TTB_Clients_UI {
 
-private static function flash_and_redirect($type, $text, $url = null) {
+  private static function flash_and_redirect($type, $text, $url = null) {
     set_transient('ttb_admin_flash', ['type' => $type, 'text' => $text], 60);
     if (!$url) $url = home_url('/briefing?section=clientes');
- 
-    // Limpiar TODOS los niveles del output buffer
+
     while (ob_get_level() > 0) {
       ob_end_clean();
     }
- 
+
     if (!headers_sent()) {
       header('Location: ' . esc_url_raw($url), true, 302);
       exit;
     }
- 
-    // Fallback: si los headers ya fueron enviados, usar JS redirect
+
     echo '<!DOCTYPE html><html><head>';
     echo '<meta http-equiv="refresh" content="0;url=' . esc_attr($url) . '">';
     echo '</head><body>';
@@ -43,74 +32,124 @@ private static function flash_and_redirect($type, $text, $url = null) {
   }
 
   public static function render_and_handle_forms() {
-    // Hook point para el futuro. (vacío)
-}
+    // Hook point para el futuro.
+  }
 
-public static function render() {
+  public static function render() {
     self::handle_create();
     self::handle_edit();
     self::handle_delete();
     self::handle_resend();
-    self::sync_social_clients(); 
+    self::handle_credentials(); // ← NUEVO
+    self::sync_social_clients();
     self::render_create_form();
     self::render_list();
-}
+  }
 
+  /* ════════════════════════════════════════
+     NUEVO: EDITAR CREDENCIALES
+  ════════════════════════════════════════ */
 
-private static function sync_social_clients() {
+  private static function handle_credentials() {
+    if (!isset($_POST['ttb_central_client_credentials'])) return;
+    if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_central_client_credentials')) return;
+
+    $client_id   = (int)($_POST['client_id']   ?? 0);
+    $new_username = sanitize_user(trim($_POST['new_username'] ?? ''), true);
+    $new_password = trim($_POST['new_password'] ?? '');
+    $confirm_pass = trim($_POST['confirm_password'] ?? '');
+
+    if (!$client_id) {
+      self::flash_and_redirect('error', 'Cliente no encontrado.');
+    }
+
+    if (empty($new_username)) {
+      self::flash_and_redirect('error', 'El nombre de usuario no puede estar vacío.');
+    }
+
+    if (!empty($new_password) && $new_password !== $confirm_pass) {
+      self::flash_and_redirect('error', 'Las contraseñas no coinciden.');
+    }
+
+    global $wpdb;
+    $table = TTB_DB::clients_table();
+
+    // Comprobar que el username no está en uso por otro cliente
+    $conflict = $wpdb->get_var($wpdb->prepare(
+      "SELECT id FROM $table WHERE username = %s AND id != %d LIMIT 1",
+      $new_username, $client_id
+    ));
+    if ($conflict) {
+      self::flash_and_redirect('error', 'Ese nombre de usuario ya está en uso por otro cliente.');
+    }
+
+    $update = [
+      'username'   => $new_username,
+      'updated_at' => TTB_DB::now(),
+    ];
+
+    // Solo actualizar la contraseña si se ha introducido una nueva
+    if (!empty($new_password)) {
+      $update['pass_hash'] = password_hash($new_password, PASSWORD_DEFAULT);
+    }
+
+    $wpdb->update($table, $update, ['id' => $client_id]);
+
+    $msg = !empty($new_password)
+      ? 'Usuario y contraseña actualizados correctamente.'
+      : 'Nombre de usuario actualizado correctamente.';
+
+    self::flash_and_redirect('success', $msg, home_url('/briefing?section=clientes'));
+  }
+
+  /* ════════════════════════════════════════
+     ACCIONES POST EXISTENTES
+  ════════════════════════════════════════ */
+
+  private static function sync_social_clients() {
     global $wpdb;
     $clients_table = TTB_DB::clients_table();
     $sc_table      = TTB_Social_DB::clients_table();
 
-    // Buscar todos los clientes que tienen servicio 'social'
     $clients = $wpdb->get_results("SELECT * FROM $clients_table LIMIT 500");
 
     foreach ($clients as $c) {
-        $services = json_decode((string)$c->services, true) ?: [];
-        if (!in_array('social', $services, true)) continue;
+      $services = json_decode((string)$c->services, true) ?: [];
+      if (!in_array('social', $services, true)) continue;
 
-        // Comprobar si ya existe el vínculo
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM $sc_table WHERE ttb_client_id = %d LIMIT 1",
-            (int)$c->id
-        ));
+      $existing = $wpdb->get_var($wpdb->prepare(
+        "SELECT id FROM $sc_table WHERE ttb_client_id = %d LIMIT 1",
+        (int)$c->id
+      ));
 
-        if ($existing) {
-            // Ya existe — solo actualizar nombre y emails por si han cambiado
-            $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
-            $wpdb->update($sc_table, [
-                'name'       => $c->name,
-                'emails'     => wp_json_encode(array_values($emails)),
-                'updated_at' => TTB_Social_DB::now(),
-            ], ['ttb_client_id' => (int)$c->id]);
-            continue;
-        }
+      if ($existing) {
+        $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
+        $wpdb->update($sc_table, [
+          'name'       => $c->name,
+          'emails'     => wp_json_encode(array_values($emails)),
+          'updated_at' => TTB_Social_DB::now(),
+        ], ['ttb_client_id' => (int)$c->id]);
+        continue;
+      }
 
-        // No existe — buscar por nombre exacto (clientes legacy sin ttb_client_id)
-        $legacy = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $sc_table WHERE name = %s AND (ttb_client_id IS NULL OR ttb_client_id = 0) LIMIT 1",
-            $c->name
-        ));
+      $legacy = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $sc_table WHERE name = %s AND (ttb_client_id IS NULL OR ttb_client_id = 0) LIMIT 1",
+        $c->name
+      ));
 
-        if ($legacy) {
-            // Vincular el registro existente al cliente central
-            $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
-            $wpdb->update($sc_table, [
-                'ttb_client_id' => (int)$c->id,
-                'emails'        => wp_json_encode(array_values($emails)),
-                'updated_at'    => TTB_Social_DB::now(),
-            ], ['id' => (int)$legacy->id]);
-        } else {
-            // Crear registro nuevo desde cero
-            $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
-            self::maybe_create_social_client((int)$c->id, (string)$c->name, $emails);
-        }
+      if ($legacy) {
+        $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
+        $wpdb->update($sc_table, [
+          'ttb_client_id' => (int)$c->id,
+          'emails'        => wp_json_encode(array_values($emails)),
+          'updated_at'    => TTB_Social_DB::now(),
+        ], ['id' => (int)$legacy->id]);
+      } else {
+        $emails = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
+        self::maybe_create_social_client((int)$c->id, (string)$c->name, $emails);
+      }
     }
-}
-
-  /* ════════════════════════════════════════
-     ACCIONES POST
-  ════════════════════════════════════════ */
+  }
 
   private static function handle_create() {
     if (!isset($_POST['ttb_central_client_create'])) return;
@@ -153,21 +192,14 @@ private static function sync_social_clients() {
 
     $new_client_id = (int)$wpdb->insert_id;
 
-    // ── SALTAR PREBRIEFING ──────────────────────────────────────────
-    // Si se marca "Saltar prebriefing", insertamos registros en ttb_answers
-    // con sent=1 para todos los servicios, desbloqueando directamente los módulos.
-    // NO se envía email de prebriefing en este caso.
     if ($skip_briefing && $new_client_id && !empty($services)) {
       self::mark_all_briefings_as_sent($new_client_id, $services, $lang);
     }
-    // ─────────────────────────────────────────────────────────────────
 
-    // Si tiene servicio "social", crear el registro en ttb_social_clients
     if (in_array('social', $services, true) && $new_client_id) {
       self::maybe_create_social_client($new_client_id, $name, $emails);
     }
 
-    // Solo enviar email de acceso si NO se salta el prebriefing
     if (!$skip_briefing && !empty($services)) {
       self::send_access_to_all_emails($name, $emails, $username, $password, $services, $lang);
       self::flash_and_redirect('success', 'Cliente creado y email de acceso enviado.',
@@ -207,17 +239,13 @@ private static function sync_social_clients() {
       'updated_at' => TTB_DB::now(),
     ], ['id' => $client_id]);
 
-    // Si ahora tiene social, crear registro si no existía (sin email de bienvenida)
     if (in_array('social', $services, true)) {
       self::maybe_create_social_client($client_id, $name, $emails);
     }
 
-    // ── SALTAR PREBRIEFING EN EDICIÓN ───────────────────────────────
-    // Si se marca en edición, desbloquea los servicios que aún no tenían sent=1.
     if ($skip_briefing && !empty($services)) {
       self::mark_all_briefings_as_sent($client_id, $services, $lang);
     }
-    // ─────────────────────────────────────────────────────────────────
 
     self::propagate_update($client_id, $name, $emails);
 
@@ -225,8 +253,7 @@ private static function sync_social_clients() {
       ? 'Cliente actualizado. Módulos desbloqueados directamente (sin prebriefing).'
       : 'Cliente actualizado correctamente.';
 
-    self::flash_and_redirect('success', $msg,
-      home_url('/briefing?section=clientes'));
+    self::flash_and_redirect('success', $msg, home_url('/briefing?section=clientes'));
   }
 
   private static function handle_delete() {
@@ -274,38 +301,27 @@ private static function sync_social_clients() {
   }
 
   /* ════════════════════════════════════════
-     NUEVO: Marcar prebriefings como enviados
-     (desbloquea módulos sin que el cliente
-     tenga que rellenar nada)
+     MARCAR PREBRIEFINGS COMO ENVIADOS
   ════════════════════════════════════════ */
 
-  /**
-   * Inserta registros en ttb_answers con sent=1 para todos los servicios indicados.
-   * Solo crea el registro si no existe ya (no sobreescribe respuestas reales).
-   * También actualiza el status del cliente a 'enviado'.
-   */
   private static function mark_all_briefings_as_sent($client_id, $services, $lang = 'es') {
     global $wpdb;
     $table = TTB_DB::answers_table();
 
     foreach ($services as $svc) {
-      // Comprobar si ya existe un registro
       $existing = $wpdb->get_row($wpdb->prepare(
         "SELECT id, sent FROM $table WHERE client_id=%d AND service=%s",
         $client_id, $svc
       ));
 
       if ($existing) {
-        // Si ya existe pero no estaba marcado como enviado, lo marcamos
         if ((int)$existing->sent !== 1) {
           $wpdb->update($table, [
             'sent'       => 1,
             'updated_at' => TTB_DB::now(),
           ], ['id' => (int)$existing->id]);
         }
-        // Si ya estaba sent=1, no hacemos nada
       } else {
-        // Crear registro vacío con sent=1
         $empty_answers = wp_json_encode([
           'ttb_skip_briefing' => '1',
           'note'              => 'Prebriefing saltado por el administrador.',
@@ -321,7 +337,6 @@ private static function sync_social_clients() {
       }
     }
 
-    // Actualizar status del cliente
     $wpdb->update(TTB_DB::clients_table(), [
       'status'     => 'enviado',
       'updated_at' => TTB_DB::now(),
@@ -329,7 +344,7 @@ private static function sync_social_clients() {
   }
 
   /* ════════════════════════════════════════
-     FIX Error 1: Envío a TODOS los emails
+     HELPERS
   ════════════════════════════════════════ */
 
   private static function send_access_to_all_emails($name, $emails, $username, $password, $services, $lang) {
@@ -339,10 +354,6 @@ private static function sync_social_clients() {
       $mailer->send_client_access($name, $email, $username, $password, $services, $lang);
     }
   }
-
-  /* ════════════════════════════════════════
-     FIX Error 3: Crear registro social SIN email
-  ════════════════════════════════════════ */
 
   public static function maybe_create_social_client($client_id, $name, $emails) {
     global $wpdb;
@@ -385,14 +396,9 @@ private static function sync_social_clients() {
     }
   }
 
-  /* ════════════════════════════════════════
-     PROPAGACIÓN A MÓDULOS
-  ════════════════════════════════════════ */
-
   public static function propagate_update($client_id, $name, $emails) {
     global $wpdb;
-    $emails_json = wp_json_encode(array_values($emails));
-
+    $emails_json  = wp_json_encode(array_values($emails));
     $social_table = TTB_Social_DB::clients_table();
     if ($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $social_table WHERE ttb_client_id=%d", $client_id))) {
       $wpdb->update($social_table, [
@@ -402,10 +408,6 @@ private static function sync_social_clients() {
       ], ['ttb_client_id' => $client_id]);
     }
   }
-
-  /* ════════════════════════════════════════
-     HELPERS PÚBLICOS
-  ════════════════════════════════════════ */
 
   public static function get_clients_by_services($services) {
     global $wpdb;
@@ -421,7 +423,7 @@ private static function sync_social_clients() {
   }
 
   public static function render_client_select($field_name, $services, $selected_id = 0, $required = true) {
-    $clients = self::get_clients_by_services($services);
+    $clients      = self::get_clients_by_services($services);
     $service_label = is_array($services) ? implode('/', $services) : $services;
 
     if (empty($clients)) {
@@ -471,7 +473,7 @@ private static function sync_social_clients() {
 
     echo '<div style="margin-top:12px">';
     echo '<label>Emails del cliente <span class="ttb-required">*</span></label>';
-    echo '<p class="ttb-muted" style="font-size:13px;margin:2px 0 8px">El primer email es el principal (acceso al portal y comunicaciones). Los demás recibirán copias completas de los emails.</p>';
+    echo '<p class="ttb-muted" style="font-size:13px;margin:2px 0 8px">El primer email es el principal. Los demás recibirán copias de los emails.</p>';
     echo '<div id="ttb-cc-emails-create" style="display:flex;flex-direction:column;gap:8px">';
     echo '<div class="ttb-cc-email-row" style="display:flex;gap:8px;align-items:center">';
     echo '<input class="ttb-input" type="email" name="client_emails[]" placeholder="email@cliente.com" required style="flex:1">';
@@ -500,16 +502,14 @@ private static function sync_social_clients() {
     }
     echo '</div></div>';
 
-    // ── OPCIÓN: SALTAR PREBRIEFING ─────────────────────────────────
     echo '<div style="margin-top:18px;background:linear-gradient(135deg,#fff7ed,#fffbeb);border:2px solid #fed7aa;border-radius:16px;padding:16px 20px">';
     echo '<label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer">';
     echo '<input type="checkbox" name="skip_briefing" value="1" id="ttb-skip-briefing-create" style="margin-top:3px;width:18px;height:18px;flex-shrink:0;accent-color:#ea580c">';
     echo '<span>';
     echo '<strong style="font-size:14px;color:#9a3412;display:block;margin-bottom:4px">⏭️ Saltar paso de prebriefing</strong>';
-    echo '<span style="font-size:13px;color:#c2410c;line-height:1.5;display:block">Activa esta opción para clientes que ya conocemos y no necesitan rellenar el formulario de prebriefing. Se desbloquearán directamente los módulos de revisión de diseño, redes sociales y web. <strong>No se enviará el email de prebriefing.</strong></span>';
+    echo '<span style="font-size:13px;color:#c2410c;line-height:1.5;display:block">Activa esta opción para clientes que ya conocemos y no necesitan rellenar el formulario de prebriefing. <strong>No se enviará el email de prebriefing.</strong></span>';
     echo '</span></label>';
     echo '</div>';
-    // ──────────────────────────────────────────────────────────────
 
     echo '<div class="ttb-actions">';
     echo '<button class="ttb-btn" name="ttb_central_client_create" value="1" id="ttb-create-btn">Crear cliente y enviar acceso</button>';
@@ -518,7 +518,6 @@ private static function sync_social_clients() {
 
     self::email_js('ttb-cc-emails-create');
 
-    // JS para actualizar el texto del botón según el checkbox
     ?>
     <script>
     (function(){
@@ -545,6 +544,9 @@ private static function sync_social_clients() {
     $answers = TTB_DB::answers_table();
     $clients = $wpdb->get_results("SELECT * FROM $table ORDER BY created_at DESC LIMIT 200");
 
+    $action_url = esc_url(home_url('/briefing?section=clientes'));
+
+    // ── Modal editar datos generales ──
     $edit_id = (int)($_GET['edit_cc'] ?? 0);
     $edit_c  = null;
     if ($edit_id) {
@@ -556,9 +558,7 @@ private static function sync_social_clients() {
       $edit_services = json_decode((string)$edit_c->services, true) ?: [];
       $edit_lang     = in_array($edit_c->lang ?? '', ['es', 'en'], true) ? $edit_c->lang : 'es';
       $cancel_url    = esc_url(home_url('/briefing?section=clientes'));
-      $action_url    = esc_url(home_url('/briefing?section=clientes'));
 
-      // Comprobar si ya tiene todos los prebriefings marcados como enviados
       $all_sent = false;
       if (!empty($edit_services)) {
         $sent_count = (int)$wpdb->get_var($wpdb->prepare(
@@ -606,14 +606,13 @@ private static function sync_social_clients() {
       }
       echo '</div></div>';
 
-      // ── OPCIÓN: SALTAR PREBRIEFING EN EDICIÓN ─────────────────────
       if (!$all_sent) {
         echo '<div style="margin-top:14px;background:linear-gradient(135deg,#fff7ed,#fffbeb);border:2px solid #fed7aa;border-radius:14px;padding:14px 18px">';
         echo '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">';
         echo '<input type="checkbox" name="skip_briefing" value="1" style="margin-top:2px;width:16px;height:16px;flex-shrink:0;accent-color:#ea580c">';
         echo '<span>';
         echo '<strong style="font-size:13px;color:#9a3412;display:block;margin-bottom:3px">⏭️ Desbloquear módulos sin prebriefing</strong>';
-        echo '<span style="font-size:12px;color:#c2410c;line-height:1.5;display:block">Marca como enviado el prebriefing de los servicios pendientes, desbloqueando los módulos directamente.</span>';
+        echo '<span style="font-size:12px;color:#c2410c;line-height:1.5;display:block">Marca como enviado el prebriefing de los servicios pendientes.</span>';
         echo '</span></label>';
         echo '</div>';
       } else {
@@ -621,7 +620,6 @@ private static function sync_social_clients() {
         echo '<p style="margin:0;font-size:13px;color:#065f46;font-weight:700">✅ Todos los módulos ya están desbloqueados.</p>';
         echo '</div>';
       }
-      // ──────────────────────────────────────────────────────────────
 
       echo '<div class="ttb-actions" style="margin-top:16px">';
       echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
@@ -632,6 +630,85 @@ private static function sync_social_clients() {
       self::email_js('ttb-cc-emails-edit');
     }
 
+    // ── NUEVO: Modal editar credenciales ──
+    $cred_id = (int)($_GET['edit_creds'] ?? 0);
+    $cred_c  = null;
+    if ($cred_id) {
+      $cred_c = $wpdb->get_row($wpdb->prepare("SELECT id, name, username FROM $table WHERE id=%d", $cred_id));
+    }
+
+    if ($cred_c) {
+      $cancel_url = esc_url(home_url('/briefing?section=clientes'));
+      echo '<div class="ttb-modal-overlay" id="ttbCredModal" role="dialog" aria-modal="true" style="display:flex">';
+      echo '<div class="ttb-modal ttb-edit-modal" style="max-width:480px">';
+      echo '<h3 class="ttb-edit-modal__title">🔑 Editar credenciales: ' . esc_html($cred_c->name) . '</h3>';
+
+      echo '<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:12px 16px;margin-bottom:16px">';
+      echo '<p style="margin:0;font-size:13px;color:#1d4ed8;line-height:1.5">';
+      echo '<strong>Usuario actual:</strong> <code style="background:#fff;border:1px solid #bfdbfe;border-radius:6px;padding:2px 8px;font-size:13px">' . esc_html($cred_c->username) . '</code>';
+      echo '</p></div>';
+
+      echo '<form method="post" action="' . $action_url . '" class="ttb-formgrid">';
+      wp_nonce_field('ttb_central_client_credentials');
+      echo '<input type="hidden" name="client_id" value="' . (int)$cred_c->id . '">';
+
+      echo '<div>';
+      echo '<label>Nuevo nombre de usuario <span class="ttb-required">*</span></label>';
+      echo '<input class="ttb-input" type="text" name="new_username" value="' . esc_attr($cred_c->username) . '" required autocomplete="off" spellcheck="false">';
+      echo '<small class="ttb-muted" style="display:block;margin-top:4px">Solo letras, números, guiones y puntos. Sin espacios.</small>';
+      echo '</div>';
+
+      echo '<div style="margin-top:12px">';
+      echo '<label>Nueva contraseña <span style="font-weight:400;color:var(--ttb-muted)">(dejar en blanco para no cambiar)</span></label>';
+      echo '<div style="position:relative">';
+      echo '<input class="ttb-input" type="password" name="new_password" id="ttb-cred-pass" autocomplete="new-password" style="padding-right:44px" placeholder="••••••••">';
+      echo '<button type="button" onclick="ttbTogglePass(\'ttb-cred-pass\')" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ttb-muted);font-size:16px" title="Mostrar/ocultar">👁</button>';
+      echo '</div></div>';
+
+      echo '<div style="margin-top:12px">';
+      echo '<label>Confirmar contraseña</label>';
+      echo '<div style="position:relative">';
+      echo '<input class="ttb-input" type="password" name="confirm_password" id="ttb-cred-pass2" autocomplete="new-password" style="padding-right:44px" placeholder="••••••••">';
+      echo '<button type="button" onclick="ttbTogglePass(\'ttb-cred-pass2\')" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ttb-muted);font-size:16px" title="Mostrar/ocultar">👁</button>';
+      echo '</div></div>';
+
+      // Generador de contraseña aleatoria
+      echo '<div style="margin-top:10px">';
+      echo '<button type="button" onclick="ttbGenPassword()" class="ttb-btn ttb-btn--ghost ttb-btn--sm">🎲 Generar contraseña aleatoria</button>';
+      echo '<span id="ttb-gen-pass-display" style="display:none;margin-left:10px;font-family:monospace;font-size:14px;font-weight:700;color:var(--ttb-pink)"></span>';
+      echo '</div>';
+
+      echo '<div style="margin-top:14px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 16px">';
+      echo '<p style="margin:0;font-size:13px;color:#92400e;line-height:1.5">⚠️ <strong>Recuerda:</strong> si cambias las credenciales, el cliente ya no podrá acceder con las anteriores. Asegúrate de comunicarle los nuevos datos.</p>';
+      echo '</div>';
+
+      echo '<div class="ttb-actions" style="margin-top:16px">';
+      echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
+      echo '<button class="ttb-btn" name="ttb_central_client_credentials" value="1">Guardar credenciales</button>';
+      echo '</div>';
+      echo '</form></div></div>';
+
+      echo '<script>
+      function ttbTogglePass(id) {
+        var i = document.getElementById(id);
+        i.type = (i.type === "password") ? "text" : "password";
+      }
+      function ttbGenPassword() {
+        var chars = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$";
+        var pass  = "";
+        for (var i = 0; i < 12; i++) pass += chars[Math.floor(Math.random() * chars.length)];
+        document.getElementById("ttb-cred-pass").type  = "text";
+        document.getElementById("ttb-cred-pass2").type = "text";
+        document.getElementById("ttb-cred-pass").value  = pass;
+        document.getElementById("ttb-cred-pass2").value = pass;
+        var display = document.getElementById("ttb-gen-pass-display");
+        display.textContent = pass;
+        display.style.display = "inline";
+      }
+      </script>';
+    }
+
+    // ── Tabla de clientes ──
     echo '<div class="ttb-card"><h3>Listado de clientes</h3>';
 
     if (!$clients) {
@@ -640,7 +717,6 @@ private static function sync_social_clients() {
       return;
     }
 
-    $action_url    = esc_url(home_url('/briefing?section=clientes'));
     $status_labels = ['pendiente' => 'Pendiente', 'en_progreso' => 'En progreso', 'enviado' => 'Enviado'];
     $status_cls    = ['pendiente' => 'ttb-status--pending', 'en_progreso' => 'ttb-status--progress', 'enviado' => 'ttb-status--sent'];
     $service_icons = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐', 'reservas' => '🍽️'];
@@ -654,7 +730,8 @@ private static function sync_social_clients() {
       $sv       = json_decode((string)$c->services, true) ?: [];
       $emails   = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
       $c_lang   = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
-      $edit_url = esc_url(home_url('/briefing?section=clientes&edit_cc=' . (int)$c->id));
+      $edit_url  = esc_url(home_url('/briefing?section=clientes&edit_cc=' . (int)$c->id));
+      $creds_url = esc_url(home_url('/briefing?section=clientes&edit_creds=' . (int)$c->id));
 
       $sv_badges = '';
       foreach ($sv as $s) {
@@ -662,7 +739,6 @@ private static function sync_social_clients() {
           . ($service_icons[$s] ?? $s) . '</span>';
       }
 
-      // Indicador de estado del prebriefing
       $briefing_indicator = '';
       if (!empty($sv)) {
         $sent_count = (int)$wpdb->get_var($wpdb->prepare(
@@ -691,6 +767,7 @@ private static function sync_social_clients() {
 
       echo '<a href="' . esc_url(home_url('/briefing?section=briefings&tab=answers&client=' . (int)$c->id)) . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">📋 Respuestas</a>';
       echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">✏️ Editar</a>';
+      echo '<a href="' . $creds_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">🔑 Credenciales</a>';
 
       echo '<form method="post" action="' . $action_url . '" style="margin:0">';
       wp_nonce_field('ttb_central_resend');

@@ -3,10 +3,11 @@ if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_Cron')) return;
 
 /**
- * TTB_Social_Cron — v2
+ * TTB_Social_Cron — v3
  * - Auto-publica posts cuando llega su fecha programada
  * - Recordatorios semanales (agrupa por week_group) en vez de por post individual
  * - Recordatorio un día antes de la publicación (configurable)
+ * - Auto-aceptación de posts pending_approval cuando faltan 7 días o menos para su publicación
  */
 class TTB_Social_Cron {
 
@@ -26,9 +27,60 @@ class TTB_Social_Cron {
   }
 
   public static function run() {
+    self::auto_accept_deadline_posts(); // ← NUEVO: primero auto-aceptar los que ya no tienen tiempo
     self::auto_publish_past_posts();
     self::send_weekly_reminders();
     self::send_eve_reminders();
+  }
+
+  /**
+   * NUEVO: AUTO-ACEPTACIÓN POR FECHA LÍMITE
+   * Posts en estado 'pending_approval' cuya fecha de publicación es en 7 días o menos
+   * se auto-aceptan automáticamente. Solo afecta a pending_approval, no a rejected.
+   */
+  private static function auto_accept_deadline_posts() {
+    global $wpdb;
+    $posts_table   = TTB_Social_DB::posts_table();
+    $clients_table = TTB_Social_DB::clients_table();
+
+    $deadline_date = date('Y-m-d', strtotime('+7 days', strtotime(current_time('Y-m-d'))));
+
+    // Posts pending_approval con fecha de publicación en 7 días o menos (pero futura o de hoy)
+    $to_auto_accept = $wpdb->get_results($wpdb->prepare(
+      "SELECT p.*, c.name AS client_name, c.emails AS client_emails, c.token AS client_token
+       FROM $posts_table p
+       INNER JOIN $clients_table c ON c.id = p.client_id
+       WHERE p.status = 'pending_approval'
+         AND p.scheduled_date >= %s
+         AND p.scheduled_date <= %s",
+      current_time('Y-m-d'),
+      $deadline_date
+    ));
+
+    if (!$to_auto_accept) return;
+
+    foreach ($to_auto_accept as $post) {
+      $wpdb->update($posts_table, [
+        'status'      => 'approved',
+        'approved_at' => TTB_Social_DB::now(),
+        'updated_at'  => TTB_Social_DB::now(),
+      ], ['id' => $post->id]);
+
+      TTB_Social_DB::log($post->client_id, $post->id, 'post_auto_accepted', 'cron', [
+        'scheduled_date' => $post->scheduled_date,
+        'days_remaining' => (int)ceil((strtotime($post->scheduled_date) - strtotime(current_time('Y-m-d'))) / 86400),
+      ]);
+
+      TTB_Logger::log('Social cron: post auto-accepted (deadline)', [
+        'post_id'        => $post->id,
+        'client_id'      => $post->client_id,
+        'scheduled_date' => $post->scheduled_date,
+      ]);
+    }
+
+    if ($to_auto_accept) {
+      TTB_Logger::log('Social cron: auto-accepted ' . count($to_auto_accept) . ' posts by deadline');
+    }
   }
 
   /**
@@ -40,7 +92,6 @@ class TTB_Social_Cron {
     $posts_table = TTB_Social_DB::posts_table();
     $today       = current_time('Y-m-d');
 
-    // Posts aprobados con fecha <= hoy → publicar
     $to_publish = $wpdb->get_results($wpdb->prepare(
       "SELECT id, client_id, scheduled_date FROM $posts_table
        WHERE status = 'approved' AND scheduled_date <= %s",
@@ -65,9 +116,6 @@ class TTB_Social_Cron {
 
   /**
    * 2. RECORDATORIOS SEMANALES
-   * Agrupa posts pendientes por week_group y cliente.
-   * Si todos los posts de esa semana siguen pendientes y han pasado N días
-   * desde la última notificación → reenvía notificación semanal.
    */
   private static function send_weekly_reminders() {
     global $wpdb;
@@ -77,7 +125,6 @@ class TTB_Social_Cron {
     $days        = max(1, (int)get_option('ttb_social_resend_days', 2));
     $max_resends = (int)get_option('ttb_social_max_resends', 3);
 
-    // Buscar posts pendientes agrupados por cliente + semana
     $pending_groups = $wpdb->get_results($wpdb->prepare(
       "SELECT p.client_id, p.week_group, MIN(p.notified_at) AS oldest_notified, COUNT(*) AS post_count,
               c.name AS client_name, c.emails AS client_emails, c.token AS client_token
@@ -95,7 +142,6 @@ class TTB_Social_Cron {
     $mailer = new TTB_Social_Mailer();
 
     foreach ($pending_groups as $group) {
-      // Contar cuántas veces se ha notificado esta semana (usar el mayor notif count entre los posts)
       $max_notif_count = (int)$wpdb->get_var($wpdb->prepare(
         "SELECT COUNT(DISTINCT DATE(notified_at)) FROM $posts_table
          WHERE client_id=%d AND week_group=%s AND notified_at IS NOT NULL",
@@ -104,7 +150,6 @@ class TTB_Social_Cron {
 
       if ($max_resends > 0 && $max_notif_count >= $max_resends) continue;
 
-      // Obtener todos los posts de esta semana
       $week_posts = $wpdb->get_results($wpdb->prepare(
         "SELECT * FROM $posts_table
          WHERE client_id=%d AND week_group=%s AND status='pending_approval'
@@ -122,7 +167,6 @@ class TTB_Social_Cron {
 
       $mailer->send_week_approval($client, $week_posts);
 
-      // Actualizar notified_at de todos los posts de la semana
       $ids = array_map(fn($p) => (int)$p->id, $week_posts);
       $ids_str = implode(',', $ids);
       $wpdb->query($wpdb->prepare(
@@ -146,9 +190,6 @@ class TTB_Social_Cron {
 
   /**
    * 3. RECORDATORIO DE VÍSPERA
-   * Un día antes de la fecha de publicación, si el post sigue pendiente
-   * de aprobación, se envía un recordatorio urgente.
-   * Solo se activa si ttb_social_eve_reminder = '1'
    */
   private static function send_eve_reminders() {
     $enabled = get_option('ttb_social_eve_reminder', '0');
@@ -160,7 +201,6 @@ class TTB_Social_Cron {
 
     $tomorrow = date('Y-m-d', strtotime('+1 day', strtotime(current_time('Y-m-d'))));
 
-    // Posts que se publican mañana y aún están pendientes
     $eve_posts = $wpdb->get_results($wpdb->prepare(
       "SELECT p.*, c.name AS client_name, c.emails AS client_emails, c.token AS client_token
        FROM $posts_table p
@@ -172,7 +212,6 @@ class TTB_Social_Cron {
 
     if (!$eve_posts) return;
 
-    // Agrupar por cliente
     $by_client = [];
     foreach ($eve_posts as $post) {
       $by_client[$post->client_id][] = $post;

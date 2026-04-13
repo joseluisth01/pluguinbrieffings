@@ -3,8 +3,10 @@ if (!defined('ABSPATH')) exit;
 if (class_exists('TTB_Social_Client')) return;
 
 /**
- * TTB_Social_Client — v7
- * Añadida pestaña "Calendario Editorial" integrada con TTB_Social_Editorial_Client.
+ * TTB_Social_Client — v8
+ * Añadido aviso de fecha límite de aprobación (7 días antes) en:
+ * - El modal de detalle de cada post
+ * - El banner general del calendario cuando hay posts próximos al límite
  */
 class TTB_Social_Client {
 
@@ -26,7 +28,6 @@ class TTB_Social_Client {
       return;
     }
 
-    // POST del calendario editorial (aprobar/rechazar mes)
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ttb_ed_client_action'])) {
       TTB_Social_Editorial_Client::render($client, $token, false);
       return;
@@ -59,6 +60,8 @@ class TTB_Social_Client {
     $posts_table   = TTB_Social_DB::posts_table();
     $content_table = TTB_Social_DB::content_table();
     $statuses      = TTB_Social_DB::post_statuses();
+    $today         = current_time('Y-m-d');
+    $deadline_limit = date('Y-m-d', strtotime('+7 days', strtotime($today)));
 
     $posts_raw = $wpdb->get_results($wpdb->prepare(
       "SELECT * FROM $posts_table
@@ -78,6 +81,11 @@ class TTB_Social_Client {
       $client->id
     ));
 
+    // Posts pendientes que están cerca del límite (7 días o menos)
+    $urgent_pending = array_filter($all_pending, function($p) use ($today, $deadline_limit) {
+      return $p->scheduled_date >= $today && $p->scheduled_date <= $deadline_limit;
+    });
+
     $client_content = $wpdb->get_results($wpdb->prepare(
       "SELECT * FROM $content_table WHERE client_id=%d ORDER BY created_at DESC LIMIT 50",
       $client->id
@@ -96,7 +104,6 @@ class TTB_Social_Client {
     .ttb-preview-item img, .ttb-preview-item video { width:100%; height:100%; object-fit:cover; display:block; }
     .ttb-preview-remove { position:absolute; top:5px; right:5px; background:#e11d48; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:10px; font-weight:900; cursor:pointer; line-height:20px; text-align:center; }
 
-    /* ── Modal detalle post (cliente) ── */
     .ttbc-post-overlay {
       position:fixed; inset:0; background:rgba(0,0,0,.5);
       backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
@@ -127,9 +134,33 @@ class TTB_Social_Client {
       transition: background .15s;
     }
     .ttbc-post-close:hover { background:#e5e7eb; }
+
+    /* Aviso de fecha límite en el modal */
+    .ttb-deadline-banner {
+      border-radius:12px;
+      padding:12px 16px;
+      margin-bottom:16px;
+      font-size:13px;
+      line-height:1.5;
+    }
+    .ttb-deadline-banner--urgent {
+      background:#fff1f2;
+      border:1.5px solid #fecdd3;
+      color:#be123c;
+    }
+    .ttb-deadline-banner--warning {
+      background:#fff7ed;
+      border:1.5px solid #fed7aa;
+      color:#9a3412;
+    }
+    .ttb-deadline-banner--info {
+      background:#eff6ff;
+      border:1.5px solid #bfdbfe;
+      color:#1d4ed8;
+    }
     </style>
 
-    <!-- ═══ MODAL DETALLE POST (cliente) ═══ -->
+    <!-- Modal detalle post -->
     <div class="ttbc-post-overlay" id="ttbc-post-overlay">
       <div class="ttbc-post-modal">
         <button class="ttbc-post-close" id="ttbc-post-close" type="button">✕</button>
@@ -143,12 +174,45 @@ class TTB_Social_Client {
         <p class="ttb-muted">Hola, <strong><?php echo esc_html($client->name); ?></strong>. Aquí tienes tus publicaciones y puedes enviarnos contenido.</p>
       </div>
 
-      <?php if (!empty($all_pending) && $tab === 'calendar'): ?>
+      <?php if (!empty($urgent_pending) && $tab === 'calendar'): ?>
+        <?php
+        $min_days_left = PHP_INT_MAX;
+        foreach ($urgent_pending as $up) {
+          $dl = (int)ceil((strtotime($up->scheduled_date) - strtotime($today)) / 86400);
+          if ($dl < $min_days_left) $min_days_left = $dl;
+        }
+        $urgent_count = count($urgent_pending);
+        if ($min_days_left <= 2) {
+          $banner_cls = 'border-color:rgba(190,18,60,.4);background:rgba(190,18,60,.04)';
+          $icon = '🚨';
+          $deadline_text = $min_days_left === 0
+            ? 'El plazo termina HOY'
+            : 'Solo queda' . ($min_days_left === 1 ? '' : 'n') . ' <strong>' . $min_days_left . ' día' . ($min_days_left === 1 ? '' : 's') . '</strong> para pedir cambios';
+          $text_color = 'color:#be123c';
+        } elseif ($min_days_left <= 5) {
+          $banner_cls = 'border-color:rgba(154,60,18,.35);background:#fff7ed';
+          $icon = '⏰';
+          $deadline_text = 'Quedan <strong>' . $min_days_left . ' días</strong> para solicitar cambios en los posts más próximos';
+          $text_color = 'color:#9a3412';
+        } else {
+          $banner_cls = 'border-color:rgba(29,78,216,.25);background:#eff6ff';
+          $icon = '📅';
+          $deadline_text = 'Revisa y aprueba antes de que se cumpla el plazo de 7 días previos a la publicación';
+          $text_color = 'color:#1d4ed8';
+        }
+        ?>
+        <div class="ttb-card" style="border:1.5px solid;<?php echo $banner_cls; ?>">
+          <h3 style="margin:0 0 6px;<?php echo $text_color; ?>"><?php echo $icon; ?> <?php echo $urgent_count === 1 ? '1 publicación pendiente de aprobación está próxima al plazo límite' : $urgent_count . ' publicaciones pendientes están próximas al plazo límite'; ?></h3>
+          <p style="margin:0 0 10px;font-size:14px;<?php echo $text_color; ?>;line-height:1.6"><?php echo $deadline_text; ?>. Pasada esa fecha <strong>se publicarán tal y como están</strong>.</p>
+          <p style="margin:0;font-size:13px;<?php echo $text_color; ?>">Haz clic en el post del calendario para verlo y aprobarlo o pedir cambios.</p>
+        </div>
+      <?php elseif (!empty($all_pending) && $tab === 'calendar'): ?>
         <div class="ttb-card" style="border-color:rgba(215,33,115,.35);background:rgba(215,33,115,.03)">
           <h3 style="margin:0 0 4px;color:var(--ttb-pink)">
             Tienes <?php echo count($all_pending); ?> publicación<?php echo count($all_pending) > 1 ? 'es' : ''; ?> pendiente<?php echo count($all_pending) > 1 ? 's' : ''; ?> de aprobación
           </h3>
-          <p class="ttb-muted" style="margin:0">Haz clic en el post del calendario para ver la creatividad y aprobarla o pedir cambios.</p>
+          <p class="ttb-muted" style="margin:0 0 6px">Haz clic en el post del calendario para ver la creatividad y aprobarla o pedir cambios.</p>
+          <p style="margin:0;font-size:13px;color:var(--ttb-muted)">⏰ <strong>Recuerda:</strong> solo se aceptan cambios hasta 7 días antes de la fecha de publicación. Pasado ese plazo el post se publicará tal y como está.</p>
         </div>
       <?php endif; ?>
 
@@ -177,7 +241,7 @@ class TTB_Social_Client {
           </div>
 
           <?php
-          self::render_client_posts_store($posts_raw, $token, $statuses, $is_main_portal, $form_action);
+          self::render_client_posts_store($posts_raw, $token, $statuses, $is_main_portal, $form_action, $today, $deadline_limit);
           TTB_Social_Admin::render_calendar_grid(
             $posts_by_day, $days_in, $start_dow,
             $year, $month,
@@ -199,6 +263,21 @@ class TTB_Social_Client {
               </span>
             <?php endforeach; ?>
           </div>
+
+          <!-- Aviso informativo fijo sobre la política de cambios -->
+          <div style="margin-top:16px;background:#f9fafb;border-radius:12px;padding:12px 16px;border:1px solid var(--ttb-border)">
+            <p style="margin:0;font-size:13px;color:var(--ttb-muted);line-height:1.5">
+              ⏰ <strong>Política de aprobación:</strong> Solo se aceptan cambios hasta <strong>7 días antes</strong> de la fecha de publicación. Pasado ese plazo, el post se publicará tal y como está.
+            </p>
+          </div>
+
+          <!-- Aviso contacto urgente -->
+          <div style="margin-top:10px;background:#f0fdf4;border-radius:12px;padding:12px 16px;border:1px solid #bbf7d0">
+            <p style="margin:0;font-size:13px;color:#166534;line-height:1.6">
+              💬 <strong>¿Necesitas contactar con nosotros de forma urgente?</strong><br>
+              Escríbenos por <a href="https://wa.me/34957048147" target="_blank" rel="noopener" style="color:#166534;font-weight:700;text-decoration:underline">WhatsApp (+34 957 04 81 47)</a> o al correo <a href="mailto:comunicacion@tictac-comunicacion.es" style="color:#166534;font-weight:700;text-decoration:underline">comunicacion@tictac-comunicacion.es</a>.
+            </p>
+          </div>
         </div>
 
       <?php elseif ($tab === 'editorial'): ?>
@@ -210,6 +289,13 @@ class TTB_Social_Client {
         <div class="ttb-card">
           <h3 style="margin:0 0 6px">Envíanos tu contenido</h3>
           <p class="ttb-muted" style="margin:0 0 18px">Sube fotos o vídeos que quieras usar en tus publicaciones, o escríbenos una idea.</p>
+
+          <!-- Aviso plazo de entrega de material -->
+          <div style="background:linear-gradient(135deg,#fefce8,#fff);border:2px solid #fde68a;border-radius:16px;padding:18px 20px;margin-bottom:20px">
+            <p style="margin:0 0 8px;font-size:14px;font-weight:900;color:#92400e">🗓️ Plazo mínimo de entrega de material</p>
+            <p style="margin:0 0 10px;font-size:14px;color:#92400e;line-height:1.6">Si la publicación depende de material vuestro (fotos, vídeos, información, etc.), este deberá enviarse con un <strong>mínimo de 10 días de antelación</strong> respecto a la fecha de publicación prevista.</p>
+            <p style="margin:0;font-size:13px;color:#b45309;line-height:1.6;background:#fffbeb;border-radius:10px;padding:10px 14px;border:1px solid #fcd34d">⚠️ En caso de no recibir el material a tiempo, la publicación será <strong>sustituida por contenido alternativo</strong> propuesto por la agencia, sin posibilidad de incluir el material fuera de plazo en esa publicación concreta.</p>
+          </div>
 
           <form method="post" action="<?php echo $form_action; ?>" enctype="multipart/form-data" id="ttb-social-upload-form">
             <?php wp_nonce_field('ttb_social_upload_' . $token); ?>
@@ -271,9 +357,7 @@ class TTB_Social_Client {
 
     <script>
     (function(){
-      /* ═══════════════════════════════════════════
-         MODAL DETALLE POST
-      ═══════════════════════════════════════════ */
+      /* Modal detalle post */
       var overlay  = document.getElementById('ttbc-post-overlay');
       var body     = document.getElementById('ttbc-post-body');
       var closeBtn = document.getElementById('ttbc-post-close');
@@ -321,8 +405,37 @@ class TTB_Social_Client {
       }
 
       /* ═══════════════════════════════════════════
-         UPLOAD — drag & drop
+         CARRUSEL MULTI-ARCHIVO
       ═══════════════════════════════════════════ */
+      (function(){
+        var carouselState = {};
+        function getState(id, total) {
+          if (!carouselState[id]) carouselState[id] = { current: 0, total: total };
+          return carouselState[id];
+        }
+        function applySlide(id) {
+          var s     = carouselState[id];
+          var track = document.getElementById(id + '-track');
+          var dot   = document.getElementById(id + '-dot');
+          if (track) track.style.transform = 'translateX(-' + (s.current * 100) + '%)';
+          if (dot)   dot.textContent = (s.current + 1) + ' / ' + s.total;
+          for (var i = 0; i < s.total; i++) {
+            var thumb = document.getElementById(id + '-thumb-' + i);
+            if (thumb) thumb.style.borderColor = (i === s.current) ? 'var(--ttb-pink)' : 'var(--ttb-border)';
+          }
+        }
+        window.ttbCarouselNext = function(id, total) {
+          var s = getState(id, total); s.current = (s.current + 1) % s.total; applySlide(id);
+        };
+        window.ttbCarouselPrev = function(id, total) {
+          var s = getState(id, total); s.current = (s.current - 1 + s.total) % s.total; applySlide(id);
+        };
+        window.ttbCarouselGoTo = function(id, idx, total) {
+          var s = getState(id, total); s.current = idx; applySlide(id);
+        };
+      })();
+
+      /* Upload drag & drop */
       var MAX_MB  = <?php echo (int)get_option('ttb_social_max_filesize', 50); ?>;
       var files   = [];
       var dz      = document.getElementById('ttb-social-dropzone');
@@ -381,17 +494,28 @@ class TTB_Social_Client {
 
   /**
    * Store de posts oculto en el DOM.
+   * Incluye aviso de fecha límite en el detalle de cada post.
    */
-  private static function render_client_posts_store($posts, $token, $statuses, $is_main_portal = false, $form_action = '') {
+  private static function render_client_posts_store($posts, $token, $statuses, $is_main_portal = false, $form_action = '', $today = '', $deadline_limit = '') {
     if (!$form_action) {
       $form_action = esc_url(TTB_Social_DB::client_url($token));
     }
+    if (!$today)          $today          = current_time('Y-m-d');
+    if (!$deadline_limit) $deadline_limit = date('Y-m-d', strtotime('+7 days', strtotime($today)));
 
     echo '<div id="ttb-client-posts-store" style="display:none">';
     foreach ($posts as $post) {
       [$sl,$sbg,$sbc,$sco] = $statuses[$post->status] ?? ['—','#f3f4f6','#e5e7eb','#374151'];
       $date_fmt  = date_i18n('l, j \d\e F \d\e Y', strtotime($post->scheduled_date));
       $copy_text = $post->copy_text ?? '';
+
+      // Calcular días hasta la fecha límite de cambios (7 días antes de la publicación)
+      $pub_ts       = strtotime($post->scheduled_date);
+      $cutoff_ts    = $pub_ts - (7 * 86400);
+      $today_ts     = strtotime($today);
+      $days_to_cutoff = (int)ceil(($cutoff_ts - $today_ts) / 86400);
+      $past_deadline  = $today >= date('Y-m-d', $cutoff_ts);
+      $near_deadline  = !$past_deadline && $post->scheduled_date <= $deadline_limit;
 
       ob_start();
       ?>
@@ -403,17 +527,98 @@ class TTB_Social_Client {
           <p style="margin:0;font-size:16px;font-weight:800;color:var(--ttb-text)"><?php echo esc_html($date_fmt); ?></p>
         </div>
 
-        <?php if ($post->creative_url): ?>
-          <?php $is_vid = in_array(strtolower(pathinfo($post->creative_url, PATHINFO_EXTENSION)), ['mp4','mov','webm'], true); ?>
+        <?php
+        // Aviso de fecha límite — solo en posts pending_approval
+        if ($post->status === 'pending_approval'):
+          if ($past_deadline):
+        ?>
+          <div class="ttb-deadline-banner ttb-deadline-banner--urgent" style="margin-bottom:14px">
+            <strong>🔴 Plazo de cambios finalizado</strong><br>
+            El plazo para solicitar cambios ha concluido. Esta publicación se realizará tal y como está.
+          </div>
+        <?php elseif ($near_deadline && $days_to_cutoff <= 2): ?>
+          <div class="ttb-deadline-banner ttb-deadline-banner--urgent" style="margin-bottom:14px">
+            <strong>🚨 Plazo casi agotado</strong> — Solo queda<?php echo $days_to_cutoff === 1 ? '' : 'n'; ?> <strong><?php echo $days_to_cutoff; ?> día<?php echo $days_to_cutoff === 1 ? '' : 's'; ?></strong> para pedir cambios.<br>
+            Pasado ese plazo la publicación se realizará tal y como está.
+          </div>
+        <?php elseif ($near_deadline): ?>
+          <div class="ttb-deadline-banner ttb-deadline-banner--warning" style="margin-bottom:14px">
+            <strong>⏰ Plazo próximo</strong> — Tienes hasta el <strong><?php echo esc_html(date_i18n('d/m/Y', $cutoff_ts)); ?></strong> para pedir cambios.<br>
+            Pasada esa fecha la publicación se realizará tal y como está.
+          </div>
+        <?php else: ?>
+          <div class="ttb-deadline-banner ttb-deadline-banner--info" style="margin-bottom:14px">
+            <strong>📅 Fecha límite de cambios:</strong> <?php echo esc_html(date_i18n('d/m/Y', $cutoff_ts)); ?><br>
+            Solo se aceptan cambios hasta 7 días antes de la publicación.
+          </div>
+        <?php
+          endif;
+        endif;
+        ?>
+
+        <?php
+        // Obtener todas las URLs (nuevo campo creative_urls o legacy creative_url)
+        $post_all_urls = TTB_Social_DB::get_post_creative_urls($post);
+        $post_url_count = count($post_all_urls);
+        if ($post_url_count > 0):
+          $carousel_id = 'ttbc-carousel-' . (int)$post->id;
+        ?>
+        <?php if ($post_url_count === 1): ?>
+          <?php $is_vid = in_array(strtolower(pathinfo($post_all_urls[0], PATHINFO_EXTENSION)), ['mp4','mov','webm'], true); ?>
           <div style="border-radius:12px;overflow:hidden;margin-bottom:14px;border:1px solid var(--ttb-border)">
             <?php if ($is_vid): ?>
-              <video src="<?php echo esc_url($post->creative_url); ?>" controls style="width:100%;max-height:280px;display:block;background:#111"></video>
+              <video src="<?php echo esc_url($post_all_urls[0]); ?>" controls style="width:100%;max-height:280px;display:block;background:#111"></video>
             <?php else: ?>
-              <a href="<?php echo esc_url($post->creative_url); ?>" target="_blank">
-                <img src="<?php echo esc_url($post->creative_url); ?>" style="width:100%;max-height:320px;object-fit:cover;display:block" alt="Creatividad">
+              <a href="<?php echo esc_url($post_all_urls[0]); ?>" target="_blank">
+                <img src="<?php echo esc_url($post_all_urls[0]); ?>" style="width:100%;max-height:320px;object-fit:cover;display:block" alt="Creatividad">
               </a>
             <?php endif; ?>
           </div>
+        <?php else: ?>
+          <!-- Carrusel multi-archivo -->
+          <div style="position:relative;margin-bottom:14px;border-radius:12px;overflow:hidden;border:1px solid var(--ttb-border);background:#f0f0f0" id="<?php echo esc_attr($carousel_id); ?>">
+            <!-- Track de slides -->
+            <div style="display:flex;transition:transform .35s cubic-bezier(.4,0,.2,1);will-change:transform" id="<?php echo esc_attr($carousel_id); ?>-track">
+              <?php foreach ($post_all_urls as $ci => $curl): ?>
+                <?php $is_v = in_array(strtolower(pathinfo($curl, PATHINFO_EXTENSION)), ['mp4','mov','webm'], true); ?>
+                <div style="flex:0 0 100%;width:100%">
+                  <?php if ($is_v): ?>
+                    <video src="<?php echo esc_url($curl); ?>" controls style="width:100%;max-height:280px;display:block;background:#111"></video>
+                  <?php else: ?>
+                    <a href="<?php echo esc_url($curl); ?>" target="_blank">
+                      <img src="<?php echo esc_url($curl); ?>" style="width:100%;max-height:320px;object-fit:cover;display:block" alt="Archivo <?php echo $ci + 1; ?>">
+                    </a>
+                  <?php endif; ?>
+                </div>
+              <?php endforeach; ?>
+            </div>
+            <!-- Botones de navegación -->
+            <button type="button" onclick="ttbCarouselPrev('<?php echo esc_js($carousel_id); ?>', <?php echo $post_url_count; ?>)"
+              style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;border-radius:50%;width:32px;height:32px;color:#fff;font-size:16px;cursor:pointer;line-height:32px;text-align:center;z-index:2">‹</button>
+            <button type="button" onclick="ttbCarouselNext('<?php echo esc_js($carousel_id); ?>', <?php echo $post_url_count; ?>)"
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;border-radius:50%;width:32px;height:32px;color:#fff;font-size:16px;cursor:pointer;line-height:32px;text-align:center;z-index:2">›</button>
+            <!-- Indicador -->
+            <div id="<?php echo esc_attr($carousel_id); ?>-dot" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:12px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7)">
+              1 / <?php echo $post_url_count; ?>
+            </div>
+          </div>
+          <!-- Miniaturas -->
+          <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+            <?php foreach ($post_all_urls as $ci => $curl): ?>
+              <?php $is_v = in_array(strtolower(pathinfo($curl, PATHINFO_EXTENSION)), ['mp4','mov','webm'], true); ?>
+              <button type="button"
+                onclick="ttbCarouselGoTo('<?php echo esc_js($carousel_id); ?>', <?php echo $ci; ?>, <?php echo $post_url_count; ?>)"
+                id="<?php echo esc_attr($carousel_id); ?>-thumb-<?php echo $ci; ?>"
+                style="width:52px;height:52px;border-radius:8px;overflow:hidden;border:2px solid <?php echo $ci === 0 ? 'var(--ttb-pink)' : 'var(--ttb-border)'; ?>;background:#f0f0f0;padding:0;cursor:pointer;flex-shrink:0">
+                <?php if ($is_v): ?>
+                  <span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:18px;background:#1a1a2e">🎬</span>
+                <?php else: ?>
+                  <img src="<?php echo esc_url($curl); ?>" style="width:100%;height:100%;object-fit:cover;display:block" alt="">
+                <?php endif; ?>
+              </button>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
         <?php endif; ?>
 
         <?php if ($copy_text): ?>
@@ -431,7 +636,7 @@ class TTB_Social_Client {
           </div>
         <?php endif; ?>
 
-        <?php if ($post->status === 'pending_approval'): ?>
+        <?php if ($post->status === 'pending_approval' && !$past_deadline): ?>
           <div style="border-top:1px solid var(--ttb-border);margin-top:16px;padding-top:16px">
             <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:var(--ttb-text)">¿Qué quieres hacer con esta publicación?</p>
 
@@ -468,6 +673,11 @@ class TTB_Social_Client {
                 </button>
               </form>
             </div>
+          </div>
+
+        <?php elseif ($post->status === 'pending_approval' && $past_deadline): ?>
+          <div style="background:#f9fafb;border-radius:10px;padding:14px 16px;margin-top:14px;border:1px solid var(--ttb-border);text-align:center">
+            <p style="margin:0;font-size:14px;color:var(--ttb-muted)">El plazo de aprobación ha concluido. Esta publicación se realizará tal y como está.</p>
           </div>
 
         <?php elseif ($post->status === 'approved'): ?>
@@ -610,6 +820,13 @@ class TTB_Social_Client {
     $posts_table = TTB_Social_DB::posts_table();
     $post = $wpdb->get_row($wpdb->prepare("SELECT * FROM $posts_table WHERE id=%d AND client_id=%d", $post_id, $client->id));
     if (!$post) self::js_redirect(TTB_Social_DB::client_url($token));
+
+    // Verificar que aún está dentro del plazo
+    $cutoff_date = date('Y-m-d', strtotime($post->scheduled_date) - (7 * 86400));
+    if (current_time('Y-m-d') > $cutoff_date) {
+      // Fuera de plazo: no se puede rechazar
+      self::js_redirect(TTB_Social_DB::client_url($token));
+    }
 
     $post->client_note = $client_note;
     $wpdb->update($posts_table, ['status' => 'rejected', 'client_note' => $client_note, 'updated_at' => TTB_Social_DB::now()], ['id' => $post_id]);
