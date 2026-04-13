@@ -506,7 +506,7 @@ class TTB_Social_Admin {
      Si hay sc_client activo → muestra solo ese cliente en detalle.
      Si no → lista completa.
   ════════════════════════════════ */
-  private static function render_clients($sc = 0) {
+private static function render_clients($sc = 0) {
     global $wpdb;
     $sc_table      = TTB_Social_DB::clients_table();
     $clients_table = TTB_DB::clients_table();
@@ -519,29 +519,29 @@ class TTB_Social_Admin {
               ORDER BY sc.created_at DESC LIMIT 200";
 
     if ($sc) {
-      $clients = $wpdb->get_results($wpdb->prepare(
-        "SELECT sc.*, c.services AS central_services
-         FROM $sc_table sc
-         LEFT JOIN $clients_table c ON c.id = sc.ttb_client_id
-         WHERE sc.id = %d LIMIT 1",
-        $sc
-      ));
+        $clients = $wpdb->get_results($wpdb->prepare(
+            "SELECT sc.*, c.services AS central_services
+             FROM $sc_table sc
+             LEFT JOIN $clients_table c ON c.id = sc.ttb_client_id
+             WHERE sc.id = %d LIMIT 1",
+            $sc
+        ));
     } else {
-      $clients = $wpdb->get_results($query);
+        $clients = $wpdb->get_results($query);
     }
 
     echo '<div class="ttb-card">';
     echo '<h3 style="margin:0 0 4px">Clientes activos en Redes Sociales</h3>';
     if ($sc) {
-      echo '<p class="ttb-muted" style="margin:0">Mostrando el cliente seleccionado. <a href="' . esc_url(self::base_url('clients', ['sc_client' => ''])) . '" style="color:var(--ttb-pink)">Ver todos →</a></p>';
+        echo '<p class="ttb-muted" style="margin:0">Mostrando el cliente seleccionado. <a href="' . esc_url(self::base_url('clients', ['sc_client' => ''])) . '" style="color:var(--ttb-pink)">Ver todos →</a></p>';
     } else {
-      echo '<p class="ttb-muted" style="margin:0">Los clientes se gestionan desde la pestaña <strong>Clientes</strong>. Aquí puedes configurar redes y reenviar accesos.</p>';
+        echo '<p class="ttb-muted" style="margin:0">Los clientes se gestionan desde la pestaña <strong>Clientes</strong>. Aquí puedes configurar redes y reenviar accesos.</p>';
     }
     echo '</div>';
 
     if (!$clients) {
-      echo '<div class="ttb-card"><p class="ttb-muted">No hay clientes' . ($sc ? ' con ese filtro' : ' con servicio de redes sociales') . ' aún.</p></div>';
-      return;
+        echo '<div class="ttb-card"><p class="ttb-muted">No hay clientes' . ($sc ? ' con ese filtro' : ' con servicio de redes sociales') . ' aún.</p></div>';
+        return;
     }
 
     $edit_id = (int)($_GET['edit_sc'] ?? 0);
@@ -549,62 +549,94 @@ class TTB_Social_Admin {
     if ($edit_id) $edit_c = $wpdb->get_row($wpdb->prepare("SELECT * FROM $sc_table WHERE id=%d", $edit_id));
 
     if ($edit_c) {
-      $edit_networks = json_decode((string)$edit_c->networks, true) ?: [];
-      $cancel_url    = esc_url(self::base_url('clients'));
-      echo '<div class="ttb-modal-overlay" id="ttbScEditModal" role="dialog" aria-modal="true" style="display:flex">';
-      echo '<div class="ttb-modal ttb-edit-modal"><h3 class="ttb-edit-modal__title">Configurar redes: ' . esc_html($edit_c->name) . '</h3>';
-      echo '<form method="post" action="' . $action_url . '" class="ttb-formgrid">';
-      wp_nonce_field('ttb_social_client_edit');
-      echo '<input type="hidden" name="sc_id" value="' . (int)$edit_c->id . '">';
-      echo '<div style="margin-top:10px"><label>Redes que gestiona TicTac</label><div class="ttb-checks" style="margin-top:8px">';
-      foreach ($networks_all as $k => [$label]) {
-        $checked = in_array($k, $edit_networks, true) ? 'checked' : '';
-        echo '<label class="ttb-check"><input type="checkbox" name="sc_networks[]" value="' . esc_attr($k) . '" ' . $checked . '> ' . esc_html($label) . '</label>';
-      }
-      echo '</div></div>';
-      echo '<div style="margin-top:10px"><label>Notas internas</label><input class="ttb-input" type="text" name="sc_notes" value="' . esc_attr($edit_c->notes ?? '') . '"></div>';
-      echo '<div style="margin-top:10px"><label>Estado</label><div class="ttb-checks" style="margin-top:8px">';
-      echo '<label class="ttb-check"><input type="radio" name="sc_status" value="active"' . ($edit_c->status === 'active' ? ' checked' : '') . '> Activo</label>';
-      echo '<label class="ttb-check"><input type="radio" name="sc_status" value="inactive"' . ($edit_c->status === 'inactive' ? ' checked' : '') . '> Inactivo</label>';
-      echo '</div></div>';
-      echo '<div class="ttb-actions" style="margin-top:16px">';
-      echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
-      echo '<button class="ttb-btn" name="ttb_social_client_edit_networks" value="1">Guardar</button>';
-      echo '</div></form></div></div>';
+        $edit_networks = json_decode((string)$edit_c->networks, true) ?: [];
+        $edit_kit      = (int)($edit_c->kit_digital ?? 0);
+        $cancel_url    = esc_url(self::base_url('clients'));
+
+        echo '<div class="ttb-modal-overlay" id="ttbScEditModal" role="dialog" aria-modal="true" style="display:flex">';
+        echo '<div class="ttb-modal ttb-edit-modal"><h3 class="ttb-edit-modal__title">Configurar redes: ' . esc_html($edit_c->name) . '</h3>';
+        echo '<form method="post" action="' . $action_url . '" class="ttb-formgrid">';
+        wp_nonce_field('ttb_social_client_edit');
+        echo '<input type="hidden" name="sc_id" value="' . (int)$edit_c->id . '">';
+
+        // Redes
+        echo '<div style="margin-top:10px"><label>Redes que gestiona TicTac</label><div class="ttb-checks" style="margin-top:8px">';
+        foreach ($networks_all as $k => [$label]) {
+            $checked = in_array($k, $edit_networks, true) ? 'checked' : '';
+            echo '<label class="ttb-check"><input type="checkbox" name="sc_networks[]" value="' . esc_attr($k) . '" ' . $checked . '> ' . esc_html($label) . '</label>';
+        }
+        echo '</div></div>';
+
+        // Notas
+        echo '<div style="margin-top:10px"><label>Notas internas</label><input class="ttb-input" type="text" name="sc_notes" value="' . esc_attr($edit_c->notes ?? '') . '"></div>';
+
+        // Estado
+        echo '<div style="margin-top:10px"><label>Estado</label><div class="ttb-checks" style="margin-top:8px">';
+        echo '<label class="ttb-check"><input type="radio" name="sc_status" value="active"' . ($edit_c->status === 'active' ? ' checked' : '') . '> Activo</label>';
+        echo '<label class="ttb-check"><input type="radio" name="sc_status" value="inactive"' . ($edit_c->status === 'inactive' ? ' checked' : '') . '> Inactivo</label>';
+        echo '</div></div>';
+
+        // Kit Digital
+        echo '<div style="margin-top:14px;background:linear-gradient(135deg,#fefce8,#fff);border:1.5px solid #fde68a;border-radius:14px;padding:14px 18px">';
+        echo '<label style="display:flex;align-items:center;gap:10px;cursor:pointer">';
+        echo '<input type="checkbox" name="sc_kit_digital" value="1"' . ($edit_kit ? ' checked' : '') . ' style="width:18px;height:18px;accent-color:#d97706;flex-shrink:0">';
+        echo '<span>';
+        echo '<strong style="font-size:14px;color:#92400e;display:block;margin-bottom:2px">🏆 Kit Digital</strong>';
+        echo '<span style="font-size:12px;color:#b45309">Marca si este cliente gestiona sus redes a través del programa Kit Digital.</span>';
+        echo '</span></label>';
+        echo '</div>';
+
+        echo '<div class="ttb-actions" style="margin-top:16px">';
+        echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
+        echo '<button class="ttb-btn" name="ttb_social_client_edit_networks" value="1">Guardar</button>';
+        echo '</div></form></div></div>';
     }
 
+    // Tabla
     echo '<div class="ttb-card"><div class="ttb-tablewrap"><table class="ttb-table"><thead><tr><th>Cliente</th><th>Emails</th><th>Redes</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
-    foreach ($clients as $c) {
-      $nets       = json_decode((string)$c->networks, true) ?: [];
-      $nets_label = implode(', ', array_map(fn($n) => $networks_all[$n][0] ?? $n, $nets)) ?: '—';
-      $emails_arr = json_decode((string)$c->emails, true) ?: [];
 
-      // Editar usa base_url para preservar sc_client
-      $edit_params = ['edit_sc' => (int)$c->id];
-      if ($sc) $edit_params['sc_client'] = $sc;
-      $edit_url   = esc_url(home_url('/briefing?section=redes-sociales&sstab=clients&' . http_build_query($edit_params)));
-      $cal_url    = esc_url(self::base_url('calendar', ['sc_client' => (int)$c->id]));
-      $portal_url = esc_url(TTB_Social_DB::client_url($c->token));
-      $status_lbl = $c->status === 'active'
-        ? '<span class="ttb-status ttb-status--sent">Activo</span>'
-        : '<span class="ttb-status ttb-status--pending">Inactivo</span>';
-      echo '<tr>';
-      echo '<td><strong>' . esc_html($c->name) . '</strong>' . ($c->notes ? '<br><small style="color:var(--ttb-muted)">' . esc_html(mb_substr($c->notes, 0, 50)) . '</small>' : '') . '</td>';
-      echo '<td style="font-size:13px">' . implode('<br>', array_map('esc_html', $emails_arr)) . '</td>';
-      echo '<td style="font-size:13px">' . esc_html($nets_label) . '</td>';
-      echo '<td>' . $status_lbl . '</td>';
-      echo '<td><div class="ttb-row-actions">';
-      echo '<a href="' . $portal_url . '" target="_blank" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Ver portal</a>';
-      echo '<a href="' . $cal_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Calendario</a>';
-      echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Configurar redes</a>';
-      echo '<form method="post" action="' . $action_url . '" style="margin:0">';
-      wp_nonce_field('ttb_social_resend_welcome');
-      echo '<input type="hidden" name="sc_id" value="' . (int)$c->id . '">';
-      echo '<button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_social_resend_welcome" value="1">Reenviar acceso</button></form>';
-      echo '</div></td></tr>';
+    foreach ($clients as $c) {
+        $nets       = json_decode((string)$c->networks, true) ?: [];
+        $nets_label = implode(', ', array_map(fn($n) => $networks_all[$n][0] ?? $n, $nets)) ?: '—';
+        $emails_arr = json_decode((string)$c->emails, true) ?: [];
+        $is_kit     = !empty($c->kit_digital);
+
+        $edit_params = ['edit_sc' => (int)$c->id];
+        if ($sc) $edit_params['sc_client'] = $sc;
+        $edit_url   = esc_url(home_url('/briefing?section=redes-sociales&sstab=clients&' . http_build_query($edit_params)));
+        $cal_url    = esc_url(self::base_url('calendar', ['sc_client' => (int)$c->id]));
+        $portal_url = esc_url(TTB_Social_DB::client_url($c->token));
+
+        $status_lbl = $c->status === 'active'
+            ? '<span class="ttb-status ttb-status--sent">Activo</span>'
+            : '<span class="ttb-status ttb-status--pending">Inactivo</span>';
+
+        $kit_badge = $is_kit
+            ? ' <span style="display:inline-block;font-size:10px;font-weight:900;padding:2px 8px;border-radius:999px;background:#fef9c3;border:1px solid #fde68a;color:#854d0e;vertical-align:middle;margin-left:4px">🏆 Kit Digital</span>'
+            : '';
+
+        $notes_html = $c->notes
+            ? '<br><small style="color:var(--ttb-muted)">' . esc_html(mb_substr($c->notes, 0, 50)) . '</small>'
+            : '';
+
+        echo '<tr>';
+        echo '<td><strong>' . esc_html($c->name) . '</strong>' . $kit_badge . $notes_html . '</td>';
+        echo '<td style="font-size:13px">' . implode('<br>', array_map('esc_html', $emails_arr)) . '</td>';
+        echo '<td style="font-size:13px">' . esc_html($nets_label) . '</td>';
+        echo '<td>' . $status_lbl . '</td>';
+        echo '<td><div class="ttb-row-actions">';
+        echo '<a href="' . $portal_url . '" target="_blank" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Ver portal</a>';
+        echo '<a href="' . $cal_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Calendario</a>';
+        echo '<a href="' . $edit_url . '" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Configurar redes</a>';
+        echo '<form method="post" action="' . $action_url . '" style="margin:0">';
+        wp_nonce_field('ttb_social_resend_welcome');
+        echo '<input type="hidden" name="sc_id" value="' . (int)$c->id . '">';
+        echo '<button class="ttb-btn ttb-btn--ghost ttb-btn--sm" name="ttb_social_resend_welcome" value="1">Reenviar acceso</button></form>';
+        echo '</div></td></tr>';
     }
+
     echo '</tbody></table></div></div>';
-  }
+}
 
   /* ════════════════════════════════
      RENDER: CONTENIDO
@@ -1264,33 +1296,42 @@ class TTB_Social_Admin {
     echo '</form>';
   }
 
-  public static function handle_client_edit_networks_action() {
+public static function handle_client_edit_networks_action() {
     if (!isset($_POST['ttb_social_client_edit_networks'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_client_edit')) return;
 
-    $id       = (int)($_POST['sc_id'] ?? 0);
-    $networks = array_map('sanitize_text_field', (array)($_POST['sc_networks'] ?? []));
-    $notes    = sanitize_textarea_field($_POST['sc_notes'] ?? '');
-    $status   = in_array($_POST['sc_status'] ?? '', ['active','inactive'], true) ? $_POST['sc_status'] : 'active';
+    $id          = (int)($_POST['sc_id']     ?? 0);
+    $networks    = array_map('sanitize_text_field', (array)($_POST['sc_networks'] ?? []));
+    $notes       = sanitize_textarea_field($_POST['sc_notes']   ?? '');
+    $status      = in_array($_POST['sc_status'] ?? '', ['active','inactive'], true) ? $_POST['sc_status'] : 'active';
+    $kit_digital = isset($_POST['sc_kit_digital']) ? 1 : 0;
 
     if (!$id) return;
 
     global $wpdb;
     $wpdb->update(TTB_Social_DB::clients_table(), [
-      'networks'   => wp_json_encode(array_values($networks)),
-      'notes'      => $notes,
-      'status'     => $status,
-      'updated_at' => TTB_Social_DB::now(),
+        'networks'    => wp_json_encode(array_values($networks)),
+        'notes'       => $notes,
+        'status'      => $status,
+        'kit_digital' => $kit_digital,
+        'updated_at'  => TTB_Social_DB::now(),
     ], ['id' => $id]);
 
-    TTB_Social_DB::log($id, null, 'client_updated', 'admin', ['networks' => $networks]);
+    TTB_Social_DB::log($id, null, 'client_updated', 'admin', ['networks' => $networks, 'kit_digital' => $kit_digital]);
 
     // Preservar sc_client en el redirect
     $sc = self::active_client_id();
     $redirect_params = ['section' => 'redes-sociales', 'sstab' => 'clients'];
     if ($sc) $redirect_params['sc_client'] = $sc;
     set_transient('ttb_admin_flash', ['type' => 'success', 'text' => 'Configuración de redes actualizada.'], 60);
-    wp_safe_redirect(home_url('/briefing?' . http_build_query($redirect_params)));
+
+    $redirect_url = home_url('/briefing?' . http_build_query($redirect_params));
+    while (ob_get_level() > 0) ob_end_clean();
+    if (!headers_sent()) {
+        header('Location: ' . esc_url_raw($redirect_url), true, 302);
+        exit;
+    }
+    echo '<script>window.location.replace(' . wp_json_encode($redirect_url) . ');</script>';
     exit;
-  }
+}
 }

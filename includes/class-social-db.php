@@ -4,7 +4,7 @@ if (class_exists('TTB_Social_DB')) return;
 
 class TTB_Social_DB {
 
-  const SCHEMA_VERSION = 3; // v3: tabla editorial calendar
+  const SCHEMA_VERSION = 4; // v3: tabla editorial calendar
 
   public static function clients_table() {
     global $wpdb;
@@ -142,6 +142,7 @@ class TTB_Social_DB {
     self::migrate_add_ttb_client_id();
     self::migrate_v2();
     self::migrate_v3();
+    self::migrate_v4();
 
     update_option('ttb_social_schema_version', self::SCHEMA_VERSION);
   }
@@ -191,6 +192,17 @@ class TTB_Social_DB {
       self::create_tables(); // dbDelta la creará en la siguiente pasada
     }
   }
+
+  private static function migrate_v4() {
+    global $wpdb;
+    $table = self::clients_table();
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if (!$table_exists) return;
+    $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'kit_digital'");
+    if (empty($col)) {
+        $wpdb->query("ALTER TABLE `$table` ADD COLUMN `kit_digital` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`");
+    }
+}
 
   public static function run_migrations() {
     $current = (int) get_option('ttb_social_schema_version', 0);
