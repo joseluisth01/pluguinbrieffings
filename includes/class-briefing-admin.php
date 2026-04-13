@@ -132,29 +132,46 @@ class TTB_Briefing_Admin {
 
         // Subir docs del briefing a la carpeta BRIEFINGS - [nombre cliente] (sin compartir)
         $briefings_folder_id = $result['briefings_folder_id'] ?? null;
-        if ($briefings_folder_id && !empty($docs)) {
-          $uploaded_to_drive = 0;
-          foreach ($docs as $doc) {
-            $doc_url  = $doc['url']  ?? '';
-            $doc_name_d = $doc['name'] ?? 'briefing.pdf';
-            $doc_mime_d = $doc['mime'] ?? 'application/pdf';
-            if (!$doc_url) continue;
-            $file_path = self::url_to_path($doc_url);
-            if (!$file_path || !file_exists($file_path)) {
-              error_log('TTB Briefing: no se puede localizar el archivo en disco: ' . $doc_url);
-              continue;
+        if ($briefings_folder_id) {
+
+          // 1. Docs adjuntos del briefing (PDFs/DOCs que subió el admin)
+          if (!empty($docs)) {
+            $uploaded_to_drive = 0;
+            foreach ($docs as $doc) {
+              $doc_url_d  = $doc['url']  ?? '';
+              $doc_name_d = $doc['name'] ?? 'briefing.pdf';
+              $doc_mime_d = $doc['mime'] ?? 'application/pdf';
+              if (!$doc_url_d) continue;
+              $file_path = self::url_to_path($doc_url_d);
+              if (!$file_path || !file_exists($file_path)) {
+                error_log('TTB Briefing: archivo no localizado en disco: ' . $doc_url_d);
+                continue;
+              }
+              $fid = $drive->upload_file_to_folder($briefings_folder_id, $file_path, $doc_name_d, $doc_mime_d);
+              if ($fid) { $uploaded_to_drive++; error_log('TTB Briefing: doc subido → ' . $fid); }
             }
-            $drive_file_id = $drive->upload_file_to_folder($briefings_folder_id, $file_path, $doc_name_d, $doc_mime_d);
-            if ($drive_file_id) {
-              $uploaded_to_drive++;
-              error_log('TTB Briefing: doc subido a carpeta BRIEFINGS → ' . $drive_file_id);
+            if ($uploaded_to_drive > 0) {
+              TTB_Briefing_DB::log($briefing_id, $client_id, 'docs_uploaded_to_drive', 'admin', [
+                'count' => $uploaded_to_drive, 'folder_id' => $briefings_folder_id,
+              ]);
             }
           }
-          if ($uploaded_to_drive > 0) {
-            TTB_Briefing_DB::log($briefing_id, $client_id, 'docs_uploaded_to_drive', 'admin', [
-              'count'     => $uploaded_to_drive,
-              'folder_id' => $briefings_folder_id,
-            ]);
+
+          // 2. Resumen del prebriefing como archivo HTML
+          $pb_html = self::generate_prebriefing_html($client);
+          if ($pb_html) {
+            $tmp_path = sys_get_temp_dir() . '/ttb_prebriefing_' . $client_id . '_' . time() . '.html';
+            if (file_put_contents($tmp_path, $pb_html) !== false) {
+              $pb_filename = 'Prebriefing - ' . $client->name . '.html';
+              $pb_fid = $drive->upload_file_to_folder($briefings_folder_id, $tmp_path, $pb_filename, 'text/html');
+              if ($pb_fid) {
+                error_log('TTB Briefing: prebriefing HTML subido a Drive → ' . $pb_fid);
+                TTB_Briefing_DB::log($briefing_id, $client_id, 'prebriefing_uploaded_to_drive', 'admin', [
+                  'folder_id' => $briefings_folder_id, 'drive_file_id' => $pb_fid,
+                ]);
+              }
+              @unlink($tmp_path);
+            }
           }
         }
 
@@ -173,6 +190,68 @@ class TTB_Briefing_Admin {
     }
 
     self::flash_and_redirect('success', 'Briefing creado y email enviado al cliente.');
+  }
+
+  /**
+   * Genera un HTML con todas las respuestas del prebriefing del cliente.
+   * Se sube a Drive como archivo de referencia interna en la carpeta BRIEFINGS.
+   */
+  private static function generate_prebriefing_html($client) {
+    $client_id = (int)$client->id;
+    $services  = json_decode((string)($client->services ?? ''), true);
+    if (!is_array($services) || empty($services)) return null;
+
+    $lang = in_array($client->lang ?? '', ['es', 'en'], true) ? $client->lang : 'es';
+
+    $sections = [];
+    foreach ($services as $svc) {
+      if (!class_exists('TTB_Forms')) continue;
+      $payload = TTB_Forms::get_client_answers($client_id, $svc);
+      $answers = $payload['answers'] ?? null;
+      $sent    = (int)($payload['sent'] ?? 0);
+      if (!$answers || !$sent) continue;
+
+      $schema = TTB_Forms::get_schema($svc, $lang);
+      $rows   = '';
+      foreach ($schema as $field) {
+        $fid   = $field['id']    ?? ''; if (!$fid) continue;
+        $label = $field['label'] ?? $fid;
+        $val   = $answers[$fid]  ?? '';
+        if (is_array($val)) $val = implode(', ', $val);
+        $val_esc = htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
+        $rows .= '<tr>'
+               . '<td style="width:40%;padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600;color:#374151;vertical-align:top">'
+               . htmlspecialchars($label, ENT_QUOTES, 'UTF-8')
+               . '</td>'
+               . '<td style="padding:8px 12px;border:1px solid #e5e7eb;color:#1a1a2e;white-space:pre-wrap">'
+               . ($val_esc ?: '<em style="color:#9ca3af">Sin respuesta</em>')
+               . '</td></tr>';
+      }
+      if ($rows) {
+        $svc_labels = ['design'=>'Diseño','social'=>'Redes Sociales','seo'=>'SEO','web'=>'Web','reservas'=>'Reservas'];
+        $sections[] = '<h2 style="margin:28px 0 10px;font-size:16px;color:#D72173;border-bottom:2px solid #D72173;padding-bottom:6px">'
+                    . htmlspecialchars($svc_labels[$svc] ?? strtoupper($svc), ENT_QUOTES, 'UTF-8')
+                    . '</h2>'
+                    . '<table style="width:100%;border-collapse:collapse;font-size:13px;font-family:Arial,sans-serif">'
+                    . $rows . '</table>';
+      }
+    }
+
+    if (empty($sections)) return null;
+
+    $client_name_h = htmlspecialchars($client->name, ENT_QUOTES, 'UTF-8');
+    $date          = date('d/m/Y H:i');
+
+    return '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'
+         . '<title>Prebriefing — ' . $client_name_h . '</title>'
+         . '<style>body{margin:32px 40px;font-family:Arial,sans-serif;color:#1a1a2e}'
+         . 'h1{font-size:22px;color:#D72173;margin:0 0 4px}'
+         . '.meta{font-size:12px;color:#9ca3af;margin:0 0 24px}'
+         . '</style></head><body>'
+         . '<h1>Prebriefing — ' . $client_name_h . '</h1>'
+         . '<p class="meta">Generado el ' . $date . ' · TicTac Comunicación</p>'
+         . implode('', $sections)
+         . '</body></html>';
   }
 
   /**
