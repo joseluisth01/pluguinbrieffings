@@ -18,8 +18,8 @@ class TTB_DB {
   }
 
   /**
-   * Migración: añade la columna `emails` a ttb_clients si no existe.
-   * Se llama desde plugins_loaded para garantizar que siempre está presente.
+   * Migración: añade columnas faltantes a ttb_clients si no existen.
+   * Se llama desde plugins_loaded para garantizar que siempre están presentes.
    */
   public static function run_migrations() {
     global $wpdb;
@@ -28,11 +28,19 @@ class TTB_DB {
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
     if (!$table_exists) return;
 
+    // Columna emails
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'emails'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `emails` LONGTEXT NULL AFTER `email`");
-      // Rellenar emails con el email existente para los clientes ya creados
       $wpdb->query("UPDATE `$table` SET `emails` = JSON_ARRAY(`email`) WHERE `emails` IS NULL");
+    }
+
+    // Columna pass_raw — guarda la contraseña en texto plano para poder reenviarla
+    // Se cifra con base64 (ofuscación mínima, no seguridad criptográfica).
+    // La seguridad real viene del hash bcrypt en pass_hash.
+    $col2 = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'pass_raw'");
+    if (empty($col2)) {
+      $wpdb->query("ALTER TABLE `$table` ADD COLUMN `pass_raw` VARCHAR(500) NULL AFTER `pass_hash`");
     }
   }
 }

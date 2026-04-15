@@ -6,7 +6,11 @@ if (class_exists('TTB_Clients_UI')) return;
  * TTB_Clients_UI
  * Pestaña central de CLIENTES.
  *
- * Añadido: acción "Editar credenciales" para cambiar usuario y contraseña de acceso.
+ * Cambios:
+ * - handle_credentials(): al guardar nueva contraseña se almacena también en pass_raw
+ *   (base64 ofuscado) para poder reenviarla correctamente por email.
+ * - handle_resend(): usa pass_raw si existe, si no usa el nombre como fallback.
+ * - handle_create(): guarda pass_raw al crear cliente.
  */
 class TTB_Clients_UI {
 
@@ -40,24 +44,24 @@ class TTB_Clients_UI {
     self::handle_edit();
     self::handle_delete();
     self::handle_resend();
-    self::handle_credentials(); // ← NUEVO
+    self::handle_credentials();
     self::sync_social_clients();
     self::render_create_form();
     self::render_list();
   }
 
   /* ════════════════════════════════════════
-     NUEVO: EDITAR CREDENCIALES
+     EDITAR CREDENCIALES
   ════════════════════════════════════════ */
 
   private static function handle_credentials() {
     if (!isset($_POST['ttb_central_client_credentials'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_central_client_credentials')) return;
 
-    $client_id   = (int)($_POST['client_id']   ?? 0);
-    $new_username = sanitize_user(trim($_POST['new_username'] ?? ''), true);
-    $new_password = trim($_POST['new_password'] ?? '');
-    $confirm_pass = trim($_POST['confirm_password'] ?? '');
+    $client_id    = (int)($_POST['client_id']       ?? 0);
+    $new_username = sanitize_user(trim($_POST['new_username']    ?? ''), true);
+    $new_password = trim($_POST['new_password']      ?? '');
+    $confirm_pass = trim($_POST['confirm_password']  ?? '');
 
     if (!$client_id) {
       self::flash_and_redirect('error', 'Cliente no encontrado.');
@@ -88,9 +92,10 @@ class TTB_Clients_UI {
       'updated_at' => TTB_DB::now(),
     ];
 
-    // Solo actualizar la contraseña si se ha introducido una nueva
     if (!empty($new_password)) {
       $update['pass_hash'] = password_hash($new_password, PASSWORD_DEFAULT);
+      // Guardamos la contraseña en base64 para poder reenviarla por email
+      $update['pass_raw']  = base64_encode($new_password);
     }
 
     $wpdb->update($table, $update, ['id' => $client_id]);
@@ -183,6 +188,7 @@ class TTB_Clients_UI {
       'emails'     => wp_json_encode(array_values($emails)),
       'username'   => $username,
       'pass_hash'  => password_hash($password, PASSWORD_DEFAULT),
+      'pass_raw'   => base64_encode($password), // guardamos para reenvíos futuros
       'services'   => wp_json_encode(array_values($services)),
       'lang'       => $lang,
       'status'     => 'pendiente',
@@ -287,11 +293,16 @@ class TTB_Clients_UI {
     $lang     = in_array($c->lang ?? '', ['es', 'en'], true) ? $c->lang : 'es';
     $emails   = json_decode((string)($c->emails ?? ''), true) ?: [$c->email];
 
+    // Recuperar la contraseña: usar pass_raw si existe, si no el nombre del cliente
+    $password = !empty($c->pass_raw)
+      ? base64_decode($c->pass_raw)
+      : (string)$c->name;
+
     self::send_access_to_all_emails(
       (string)$c->name,
       $emails,
       (string)$c->username,
-      (string)$c->name,
+      $password,
       $services,
       $lang
     );
@@ -630,7 +641,7 @@ class TTB_Clients_UI {
       self::email_js('ttb-cc-emails-edit');
     }
 
-    // ── NUEVO: Modal editar credenciales ──
+    // ── Modal editar credenciales ──
     $cred_id = (int)($_GET['edit_creds'] ?? 0);
     $cred_c  = null;
     if ($cred_id) {

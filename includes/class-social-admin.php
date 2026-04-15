@@ -990,9 +990,10 @@ class TTB_Social_Admin {
 
     echo '</div></div></div>';
 
-    // JS modal + slots
+// JS modal + slots
     echo '<script>
     (function(){
+      /* ── Modal abrir/cerrar ── */
       window.ttbOpenNewPost = function() {
         document.getElementById("ttb-newpost-overlay").classList.add("active");
         document.body.style.overflow = "hidden";
@@ -1008,41 +1009,17 @@ class TTB_Social_Admin {
         if (e.key === "Escape" && document.getElementById("ttb-newpost-overlay").classList.contains("active"))
           ttbCloseNewPost();
       });
-
+ 
       var slotIdx = 1;
       var MAX_PER_POST = ' . $max_per_post . ';
-
-      document.getElementById("ttb-add-post-slot").addEventListener("click", function(){
-        var container = document.getElementById("ttb-posts-slots");
-        var slot = document.createElement("div");
-        slot.className = "ttb-week-slot";
-        slot.style.cssText = "border:1.5px solid var(--ttb-border);border-radius:14px;padding:16px;margin-bottom:12px;position:relative;background:#fff";
-        slot.innerHTML = \'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><strong style="font-size:14px;color:var(--ttb-text)">📌 Post #\' + (slotIdx + 1) + \'</strong><button type="button" class="ttb-btn ttb-btn--danger ttb-btn--sm" onclick="this.closest(\\\'.ttb-week-slot\\\').remove()">✕ Quitar</button></div>\'
-          + \'<div class="ttb-grid2"><div><label>Fecha <span class="ttb-required">*</span></label><input class="ttb-input" type="date" name="sp_posts[\' + slotIdx + \'][date]" required value="\' + new Date().toISOString().split("T")[0] + \'"></div>\'
-          + \'<div><label>Archivos (máx. \' + MAX_PER_POST + \')</label><input class="ttb-input" type="file" name="sp_creative_\' + slotIdx + \'[]" multiple accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm" id="sp-fi-\' + slotIdx + \'" data-slot="\' + slotIdx + \'"><small class="ttb-muted" style="display:block;margin-top:4px">Hasta \' + MAX_PER_POST + \' archivos · Max. ' . $max_mb . ' MB c/u</small><div class="ttb-slot-preview" id="sp-prev-\' + slotIdx + \'"></div></div></div>\'
-          + \'<div style="margin-top:10px"><label>Copy</label><textarea name="sp_posts[\' + slotIdx + \'][copy]" class="ttb-textarea" style="min-height:70px" placeholder="Texto de la publicación..."></textarea></div>\'
-          + \'<div style="margin-top:10px"><label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label><input class="ttb-input" type="text" name="sp_posts[\' + slotIdx + \'][note]" placeholder="Ej: He usado las fotos que nos mandaste."></div>\';
-        container.appendChild(slot);
-        ttbInitSlotPreview("sp-fi-" + slotIdx, "sp-prev-" + slotIdx);
-        slotIdx++;
-      });
-
-      // Preview delegado: cualquier input[type=file] dentro del modal actualiza su preview
-      document.getElementById("ttb-newpost-overlay").addEventListener("change", function(e) {
-        var input = e.target;
-        if (input.tagName !== "INPUT" || input.type !== "file") return;
-        var slot  = input.getAttribute("data-slot");
-        if (slot === null) return;
-        var previewId = "sp-prev-" + slot;
-        var preview   = document.getElementById(previewId);
-        if (!preview) return;
-
-        preview.innerHTML = "";
+      var MAX_MB = ' . $max_mb . ';
+ 
+      /* ── Preview reutilizable ── */
+      function renderPreview(input, previewEl) {
+        previewEl.innerHTML = "";
         var files = Array.from(input.files);
-        if (files.length === 0) return;
-
+        if (!files.length) return;
         var limited = files.slice(0, MAX_PER_POST);
-
         limited.forEach(function(f) {
           var item = document.createElement("div");
           item.className = "ttb-slot-preview-item";
@@ -1055,21 +1032,62 @@ class TTB_Social_Admin {
             item.style.cssText = "background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:20px";
             item.textContent = "🎬";
           }
-          preview.appendChild(item);
+          previewEl.appendChild(item);
         });
-
-        // Contador
         var counter = document.createElement("p");
         counter.style.cssText = "font-size:12px;color:var(--ttb-muted);margin:4px 0 0;width:100%";
-        counter.textContent = limited.length + " archivo" + (limited.length === 1 ? "" : "s") + " seleccionado" + (limited.length === 1 ? "" : "s");
         if (files.length > MAX_PER_POST) {
           counter.style.color = "#e11d48";
           counter.textContent = "⚠️ Solo se subirán los primeros " + MAX_PER_POST + " archivos.";
+        } else {
+          counter.textContent = limited.length + " archivo" + (limited.length === 1 ? "" : "s") + " seleccionado" + (limited.length === 1 ? "" : "s");
         }
-        preview.appendChild(counter);
+        previewEl.appendChild(counter);
+      }
+ 
+      /* ── Vincular listener a un slot por su índice ── */
+      function bindSlot(idx) {
+        var fi = document.getElementById("sp-fi-" + idx);
+        var pr = document.getElementById("sp-prev-" + idx);
+        if (!fi || !pr || fi._ttbBound) return;
+        fi._ttbBound = true;
+        fi.addEventListener("change", function() { renderPreview(fi, pr); });
+      }
+ 
+      /* ── Vincular el slot 0 generado por PHP ── */
+      bindSlot(0);
+ 
+      /* ── Añadir slots dinámicos ── */
+      document.getElementById("ttb-add-post-slot").addEventListener("click", function(){
+        var container = document.getElementById("ttb-posts-slots");
+        var slot = document.createElement("div");
+        slot.className = "ttb-week-slot";
+        slot.style.cssText = "border:1.5px solid var(--ttb-border);border-radius:14px;padding:16px;margin-bottom:12px;position:relative;background:#fff";
+ 
+        slot.innerHTML =
+          \'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">\'
+          + \'<strong style="font-size:14px;color:var(--ttb-text)">📌 Post #\' + (slotIdx + 1) + \'</strong>\'
+          + \'<button type="button" class="ttb-btn ttb-btn--danger ttb-btn--sm" onclick="this.closest(\\\'.ttb-week-slot\\\').remove()">✕ Quitar</button>\'
+          + \'</div>\'
+          + \'<div class="ttb-grid2">\'
+          + \'<div><label>Fecha <span class="ttb-required">*</span></label>\'
+          + \'<input class="ttb-input" type="date" name="sp_posts[\' + slotIdx + \'][date]" required value="\' + new Date().toISOString().split("T")[0] + \'"></div>\'
+          + \'<div><label>Archivos (máx. \' + MAX_PER_POST + \')</label>\'
+          + \'<input class="ttb-input" type="file" name="sp_creative_\' + slotIdx + \'[]" id="sp-fi-\' + slotIdx + \'" data-slot="\' + slotIdx + \'" multiple style="width:100%;cursor:pointer" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm">\'
+          + \'<small class="ttb-muted" style="display:block;margin-top:4px">Hasta \' + MAX_PER_POST + \' archivos · Max. \' + MAX_MB + \' MB c/u</small>\'
+          + \'<div class="ttb-slot-preview" id="sp-prev-\' + slotIdx + \'"></div>\'
+          + \'</div></div>\'
+          + \'<div style="margin-top:10px"><label>Copy</label>\'
+          + \'<textarea name="sp_posts[\' + slotIdx + \'][copy]" class="ttb-textarea" style="min-height:70px" placeholder="Texto de la publicación..."></textarea></div>\'
+          + \'<div style="margin-top:10px"><label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>\'
+          + \'<input class="ttb-input" type="text" name="sp_posts[\' + slotIdx + \'][note]" placeholder="Ej: He usado las fotos que nos mandaste."></div>\';
+ 
+        container.appendChild(slot);
+        bindSlot(slotIdx);
+        slotIdx++;
       });
-
-      // Mantener ttbInitSlotPreview como no-op (llamada en slots dinámicos, ya cubierta por delegación)
+ 
+      /* compatibilidad con código previo */
       window.ttbInitSlotPreview = function() {};
     })();
     </script>';
@@ -1201,23 +1219,37 @@ class TTB_Social_Admin {
     echo '</div></div>';
   }
 
-  private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
+private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
     echo '<div class="ttb-week-slot" style="border:1.5px solid var(--ttb-border);border-radius:14px;padding:16px;margin-bottom:12px;background:#fff">';
     echo '<strong style="font-size:14px;color:var(--ttb-text);display:block;margin-bottom:12px">📌 Post #' . ($idx + 1) . '</strong>';
     echo '<div class="ttb-grid2">';
+ 
+    // Columna fecha
     echo '<div><label>Fecha <span class="ttb-required">*</span></label>';
     echo '<input class="ttb-input" type="date" name="sp_posts[' . $idx . '][date]" required value="' . esc_attr(date('Y-m-d')) . '"></div>';
-    echo '<div><label>Archivos <span style="font-weight:400;color:var(--ttb-muted)">(máx. ' . $max_per_post . ')</span></label>';
-    echo '<input class="ttb-input" type="file" name="sp_creative_' . $idx . '[]" multiple id="sp-fi-' . $idx . '" data-slot="' . $idx . '"
-          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm">';
+ 
+    // Columna archivos — SIN <label> wrapper, el input va directo
+    echo '<div>';
+    echo '<label>Archivos <span style="font-weight:400;color:var(--ttb-muted)">(máx. ' . $max_per_post . ')</span></label>';
+    echo '<input class="ttb-input" type="file"'
+      . ' name="sp_creative_' . $idx . '[]"'
+      . ' id="sp-fi-' . $idx . '"'
+      . ' data-slot="' . $idx . '"'
+      . ' multiple'
+      . ' accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"'
+      . ' style="width:100%;cursor:pointer">';
     echo '<small class="ttb-muted" style="display:block;margin-top:4px">JPG, PNG, GIF, WEBP, MP4, MOV · Hasta ' . $max_per_post . ' archivos · Máx. ' . $max_mb . ' MB c/u</small>';
     echo '<div class="ttb-slot-preview" id="sp-prev-' . $idx . '"></div>';
     echo '</div>';
-    echo '</div>';
+ 
+    echo '</div>'; // .ttb-grid2
+ 
     echo '<div style="margin-top:10px"><label>Copy (texto de la publicación)</label>';
     echo '<textarea name="sp_posts[' . $idx . '][copy]" class="ttb-textarea" style="min-height:70px" placeholder="Texto que acompañará a la publicación..."></textarea></div>';
+ 
     echo '<div style="margin-top:10px"><label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
     echo '<input class="ttb-input" type="text" name="sp_posts[' . $idx . '][note]" placeholder="Ej: He usado las fotos que nos mandaste."></div>';
+ 
     echo '</div>';
   }
 

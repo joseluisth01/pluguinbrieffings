@@ -22,11 +22,11 @@ class TTB_Mailer {
     $logo   = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
     $pink   = '#D72173';
 
-    $map   = ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web'];
-    $icons = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐'];
+    $map   = ['design' => 'Diseño', 'social' => 'Redes Sociales', 'seo' => 'SEO', 'web' => 'Web', 'reservas' => 'Reservas'];
+    $icons = ['design' => '🎨', 'social' => '📣', 'seo' => '🚀', 'web' => '🌐', 'reservas' => '🍽️'];
     $service_pills = $this->build_pills($services, $map, $icons);
 
-    $subject = '👋 Ya puedes rellenar tu Prebriefing — TicTac Comunicación';
+    $subject = '🔑 Tus accesos al Portal de Cliente — TicTac Comunicación';
     $message = $this->tpl_access_es($name, $username, $password, $portal, $logo, $pink, $service_pills);
 
     wp_mail($email, $subject, $message, ['Content-Type: text/html; charset=UTF-8']);
@@ -40,11 +40,11 @@ class TTB_Mailer {
     $logo   = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
     $pink   = '#D72173';
 
-    $map   = ['design' => 'Design', 'social' => 'Social Media', 'seo' => 'SEO', 'web' => 'Web'];
-    $icons = ['design' => '🎨',     'social' => '📣',           'seo' => '🚀',  'web' => '🌐'];
+    $map   = ['design' => 'Design', 'social' => 'Social Media', 'seo' => 'SEO', 'web' => 'Web', 'reservas' => 'Reservations'];
+    $icons = ['design' => '🎨',     'social' => '📣',           'seo' => '🚀',  'web' => '🌐', 'reservas' => '🍽️'];
     $service_pills = $this->build_pills($services, $map, $icons);
 
-    $subject = '👋 Your Pre-briefing is ready — TicTac Comunicación';
+    $subject = '🔑 Your Client Portal access — TicTac Comunicación';
     $message = $this->tpl_access_en($name, $username, $password, $portal, $logo, $pink, $service_pills);
 
     wp_mail($email, $subject, $message, ['Content-Type: text/html; charset=UTF-8']);
@@ -59,23 +59,12 @@ class TTB_Mailer {
       foreach ($services as $s) {
         $icon  = $icons[$s]  ?? '✅';
         $label = $map[$s]    ?? $s;
-        $pills .= '
-          <span style="display:inline-block;background:rgba(255,255,255,.18);color:#fff;
-                       font-weight:700;font-size:13px;padding:5px 14px;border-radius:999px;
-                       margin:3px 4px;border:1px solid rgba(255,255,255,.3)">
-            ' . $icon . ' ' . $label . '
-          </span>';
+        $pills .= '<span style="display:inline-block;background:rgba(255,255,255,.18);color:#fff;font-weight:700;font-size:13px;padding:5px 14px;border-radius:999px;margin:3px 4px;border:1px solid rgba(255,255,255,.3)">' . $icon . ' ' . $label . '</span>';
       }
     }
     return $pills;
   }
 
-  /* ─────────────────────────────────────────────
-     FIX Error 4: Construir la URL de autologin
-     usando rawurlencode para soportar cualquier
-     carácter en usuario y contraseña, incluyendo
-     espacios, tildes, símbolos, etc.
-  ───────────────────────────────────────────── */
   private function build_autologin_url($portal, $username, $password) {
     return $portal
       . '?ttb_u=' . rawurlencode($username)
@@ -84,10 +73,9 @@ class TTB_Mailer {
 
   /* ─────────────────────────────────────────────
      TEMPLATE EMAIL ES
+     Texto general "Portal de Cliente", no solo prebriefing
   ───────────────────────────────────────────── */
   private function tpl_access_es($name, $username, $password, $portal, $logo, $pink, $pills) {
-    // FIX Error 4: usar rawurlencode en lugar de add_query_arg / esc_url
-    // porque esc_url elimina caracteres que son válidos en contraseñas.
     $autologin_url = $this->build_autologin_url($portal, $username, $password);
     return '
 <!DOCTYPE html>
@@ -100,8 +88,8 @@ class TTB_Mailer {
     <tr>
       <td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:40px 32px 32px">
         <img src="' . $logo . '" alt="TicTac Comunicación" width="160" style="display:block;margin:0 auto 20px">
-        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">¡Tu prebriefing te espera! ⏱️</h1>
-        <p style="margin:0 0 18px;color:rgba(255,255,255,.85);font-size:15px">Cuéntanos todo sobre tu proyecto y ponemos las pilas</p>
+        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">¡Bienvenido a tu Portal de Cliente! 🎉</h1>
+        <p style="margin:0 0 18px;color:rgba(255,255,255,.85);font-size:15px">Tu espacio personal con TicTac Comunicación</p>
         <div style="margin-top:4px">' . $pills . '</div>
       </td>
     </tr>
@@ -111,10 +99,9 @@ class TTB_Mailer {
           Hola, <span style="color:' . $pink . '">' . esc_html($name) . '</span> 👋
         </p>
         <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6">
-          Hemos creado tu acceso personal al portal de prebriefings de TicTac.
-          Rellénalo con calma — puedes guardarlo y retomarlo cuando quieras.
-          Cuando lo envíes, nuestro equipo lo revisará y nos pondremos en contacto contigo para arrancar.
+          Hemos creado tu acceso personal al portal de cliente de TicTac. Desde aquí podrás gestionar todos los servicios contratados: rellenar tus prebriefings, revisar diseños y mucho más.
         </p>
+
         <table width="100%" cellpadding="0" cellspacing="0"
                style="background:#fdf2f7;border:1.5px solid #f9a8d4;border-radius:14px;margin-bottom:28px">
           <tr>
@@ -124,7 +111,7 @@ class TTB_Mailer {
               </p>
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0">Usuario</td>
+                  <td style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0;width:110px">Usuario</td>
                   <td style="padding:6px 0">
                     <code style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:4px 10px;font-size:14px;color:#1a1a2e;font-weight:700">' . esc_html($username) . '</code>
                   </td>
@@ -139,6 +126,7 @@ class TTB_Mailer {
             </td>
           </tr>
         </table>
+
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
           <tr>
             <td align="center">
@@ -146,22 +134,24 @@ class TTB_Mailer {
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
-                Acceder al Portal de Prebriefing →
+                Acceder a mi Portal →
               </a>
             </td>
           </tr>
         </table>
+
         <table width="100%" cellpadding="0" cellspacing="0"
                style="background:#f9fafb;border-radius:12px;margin-bottom:24px">
           <tr>
             <td style="padding:18px 20px">
-              <p style="margin:0 0 10px;font-size:13px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:.06em">💡 Tips para rellenarlo bien</p>
-              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;No hay respuestas correctas ni incorrectas, sé tú mismo.</p>
-              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Cuanto más detalle nos des, mejor resultado obtendrás.</p>
-              <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Puedes guardar y continuar cuando quieras, sin prisa.</p>
+              <p style="margin:0 0 10px;font-size:13px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:.06em">💡 ¿Qué puedes hacer desde tu portal?</p>
+              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Rellenar y enviar tus prebriefings de cada servicio.</p>
+              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Revisar y aprobar diseños y desarrollos web.</p>
+              <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Gestionar publicaciones y contenido de redes sociales.</p>
             </td>
           </tr>
         </table>
+
         <p style="margin:0;font-size:14px;color:#9ca3af;line-height:1.6">
           ¿Tienes dudas? Responde a este email y te ayudamos encantados. 🤝
         </p>
@@ -187,7 +177,6 @@ class TTB_Mailer {
      TEMPLATE EMAIL EN
   ───────────────────────────────────────────── */
   private function tpl_access_en($name, $username, $password, $portal, $logo, $pink, $pills) {
-    // FIX Error 4: usar rawurlencode
     $autologin_url = $this->build_autologin_url($portal, $username, $password);
     return '
 <!DOCTYPE html>
@@ -200,8 +189,8 @@ class TTB_Mailer {
     <tr>
       <td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:40px 32px 32px">
         <img src="' . $logo . '" alt="TicTac Comunicación" width="160" style="display:block;margin:0 auto 20px">
-        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">Your pre-briefing is waiting! ⏱️</h1>
-        <p style="margin:0 0 18px;color:rgba(255,255,255,.85);font-size:15px">Tell us everything about your project and we\'ll get to work</p>
+        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">Welcome to your Client Portal! 🎉</h1>
+        <p style="margin:0 0 18px;color:rgba(255,255,255,.85);font-size:15px">Your personal space with TicTac Comunicación</p>
         <div style="margin-top:4px">' . $pills . '</div>
       </td>
     </tr>
@@ -211,10 +200,9 @@ class TTB_Mailer {
           Hello, <span style="color:' . $pink . '">' . esc_html($name) . '</span> 👋
         </p>
         <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6">
-          We\'ve created your personal access to the TicTac pre-briefing portal.
-          Take your time filling it in — you can save it and come back whenever you like.
-          Once you submit it, our team will review it and get in touch to kick things off.
+          We have created your personal access to the TicTac client portal. From here you can manage all your contracted services: fill in your pre-briefings, review designs and much more.
         </p>
+
         <table width="100%" cellpadding="0" cellspacing="0"
                style="background:#fdf2f7;border:1.5px solid #f9a8d4;border-radius:14px;margin-bottom:28px">
           <tr>
@@ -224,7 +212,7 @@ class TTB_Mailer {
               </p>
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td width="100" style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0">Username</td>
+                  <td style="font-size:13px;font-weight:700;color:#6b7280;padding:6px 0;width:110px">Username</td>
                   <td style="padding:6px 0">
                     <code style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:4px 10px;font-size:14px;color:#1a1a2e;font-weight:700">' . esc_html($username) . '</code>
                   </td>
@@ -239,6 +227,7 @@ class TTB_Mailer {
             </td>
           </tr>
         </table>
+
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
           <tr>
             <td align="center">
@@ -246,22 +235,24 @@ class TTB_Mailer {
                  style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
                         color:#fff;text-decoration:none;font-weight:900;font-size:16px;
                         padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
-                Access the Pre-briefing Portal →
+                Access my Portal →
               </a>
             </td>
           </tr>
         </table>
+
         <table width="100%" cellpadding="0" cellspacing="0"
                style="background:#f9fafb;border-radius:12px;margin-bottom:24px">
           <tr>
             <td style="padding:18px 20px">
-              <p style="margin:0 0 10px;font-size:13px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:.06em">💡 Tips for a great pre-briefing</p>
-              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;There are no right or wrong answers — just be yourself.</p>
-              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;The more detail you give us, the better the result.</p>
-              <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;You can save and continue at any time — no rush.</p>
+              <p style="margin:0 0 10px;font-size:13px;font-weight:900;color:#374151;text-transform:uppercase;letter-spacing:.06em">💡 What can you do from your portal?</p>
+              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Fill in and submit your pre-briefings for each service.</p>
+              <p style="margin:0 0 6px;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Review and approve designs and web developments.</p>
+              <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5">✔️ &nbsp;Manage social media posts and content.</p>
             </td>
           </tr>
         </table>
+
         <p style="margin:0;font-size:14px;color:#9ca3af;line-height:1.6">
           Any questions? Reply to this email and we\'ll be happy to help. 🤝
         </p>
@@ -375,7 +366,7 @@ class TTB_Mailer {
           </tr>
         </table>
         <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.5">
-          Aviso automático del portal de prebriefings · TicTac Comunicación
+          Aviso automático del portal de clientes · TicTac Comunicación
         </p>
       </td>
     </tr>
