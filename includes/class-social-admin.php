@@ -190,7 +190,7 @@ class TTB_Social_Admin {
    * Para múltiples archivos se llama en bucle.
    */
   private static function upload_single_creative($file_data, $date_label) {
-    $max_mb = (int)get_option('ttb_social_max_filesize', 50);
+    $max_mb = (int)get_option('ttb_social_max_filesize', 500);
     $mime   = $file_data['type'];
     $size   = $file_data['size'];
 
@@ -586,7 +586,7 @@ class TTB_Social_Admin {
       'ttb_social_notify_hola'      => sanitize_email($_POST['ttb_social_notify_hola']      ?? ''),
       'ttb_social_resend_days'      => max(1, (int)($_POST['ttb_social_resend_days']        ?? 2)),
       'ttb_social_max_resends'      => (int)($_POST['ttb_social_max_resends']               ?? 3),
-      'ttb_social_max_filesize'     => max(1, min(500, (int)($_POST['ttb_social_max_filesize'] ?? 50))),
+      'ttb_social_max_filesize'     => max(1, min(500, (int)($_POST['ttb_social_max_filesize'] ?? 500))),
       'ttb_social_approval_subject' => sanitize_text_field($_POST['ttb_social_approval_subject'] ?? ''),
       'ttb_social_approval_note'    => sanitize_textarea_field($_POST['ttb_social_approval_note'] ?? ''),
       'ttb_social_eve_reminder'     => isset($_POST['ttb_social_eve_reminder']) ? '1' : '0',
