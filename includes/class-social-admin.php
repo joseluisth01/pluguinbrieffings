@@ -49,6 +49,177 @@ class TTB_Social_Admin {
     ];
   }
 
+  /* ══════════════════════════════════════════════════════════
+     WYSIWYG — Estilos + helpers
+  ══════════════════════════════════════════════════════════ */
+
+  /**
+   * Inyecta los estilos CSS del editor WYSIWYG.
+   * Se llama UNA sola vez por página.
+   */
+  private static function inject_wysiwyg_styles() {
+    static $injected = false;
+    if ($injected) return;
+    $injected = true;
+    echo '<style>
+/* ── WYSIWYG Social Admin ── */
+.ttb-wy-wrap{border:1px solid var(--ttb-border);border-radius:12px;overflow:hidden;background:#fff;transition:border-color .2s,box-shadow .2s}
+.ttb-wy-wrap:focus-within{border-color:var(--ttb-pink);box-shadow:0 0 0 3px rgba(215,33,115,.10)}
+.ttb-wy-bar{display:flex;flex-wrap:wrap;gap:2px;padding:6px 8px;background:#f9fafb;border-bottom:1px solid var(--ttb-border)}
+.ttb-wy-bar button{background:none;border:1px solid transparent;border-radius:6px;padding:3px 8px;font-size:13px;font-weight:700;cursor:pointer;color:var(--ttb-text);line-height:1.4;min-width:26px;transition:background .12s,border-color .12s}
+.ttb-wy-bar button:hover{background:#e5e7eb;border-color:#d1d5db}
+.ttb-wy-bar button.active{background:rgba(215,33,115,.12);border-color:rgba(215,33,115,.3);color:var(--ttb-pink)}
+.ttb-wy-sep{width:1px;background:var(--ttb-border);margin:2px 3px;align-self:stretch;display:inline-block}
+.ttb-wy-editor{min-height:80px;padding:10px 12px;outline:none;font-size:14px;line-height:1.7;color:var(--ttb-text);font-family:inherit}
+.ttb-wy-editor--tall{min-height:120px}
+.ttb-wy-editor:empty::before{content:attr(data-placeholder);color:#9ca3af;pointer-events:none}
+.ttb-wy-editor ul,.ttb-wy-editor ol{padding-left:20px;margin:4px 0}
+.ttb-wy-editor blockquote{border-left:3px solid var(--ttb-pink);margin:6px 0;padding:3px 10px;color:var(--ttb-muted);font-style:italic}
+</style>';
+  }
+
+  /**
+   * Renderiza una barra de herramientas WYSIWYG y el editor contenteditable.
+   *
+   * @param string $hidden_name  Nombre del campo hidden que se enviará por POST (ej. "sp_copy" o "sp_posts[0][copy]")
+   * @param string $initial_html Contenido HTML inicial
+   * @param string $placeholder  Placeholder del editor
+   * @param bool   $full         true = barra completa (citas, limpiar); false = barra ligera
+   * @param bool   $tall         true = editor más alto (para copy)
+   * @return string  ID único del editor (para referencias JS externas si hace falta)
+   */
+  private static function wysiwyg_field($hidden_name, $initial_html = '', $placeholder = '', $full = true, $tall = false) {
+    static $wy_counter = 0;
+    $wy_counter++;
+    $editor_id = 'ttb-wy-ed-' . $wy_counter;
+    $hidden_id = 'ttb-wy-hid-' . $wy_counter;
+
+    $tall_cls = $tall ? ' ttb-wy-editor--tall' : '';
+
+    echo '<div class="ttb-wy-wrap">';
+
+    // ── Barra de herramientas ──
+    echo '<div class="ttb-wy-bar" data-editor="' . esc_attr($editor_id) . '">';
+    echo '<button type="button" data-cmd="bold" title="Negrita"><b>N</b></button>';
+    echo '<button type="button" data-cmd="italic" title="Cursiva"><i>C</i></button>';
+    echo '<button type="button" data-cmd="underline" title="Subrayado"><u>S</u></button>';
+    echo '<span class="ttb-wy-sep"></span>';
+    echo '<button type="button" data-cmd="insertUnorderedList" title="Lista">• Lista</button>';
+    echo '<button type="button" data-cmd="insertOrderedList" title="Lista numerada">1. Lista</button>';
+    if ($full) {
+      echo '<span class="ttb-wy-sep"></span>';
+      echo '<button type="button" data-cmd="formatBlock|<blockquote>" title="Cita">❝ Cita</button>';
+      echo '<button type="button" data-cmd="formatBlock|<p>" title="Párrafo normal">¶ Normal</button>';
+      echo '<span class="ttb-wy-sep"></span>';
+      echo '<button type="button" data-cmd="removeFormat" title="Limpiar formato">✕ Limpiar</button>';
+    }
+    echo '</div>';
+
+    // ── Campo hidden (el que se envía por POST) ──
+    echo '<input type="hidden" id="' . esc_attr($hidden_id) . '" name="' . esc_attr($hidden_name) . '" value="' . esc_attr($initial_html) . '">';
+
+    // ── Editor contenteditable ──
+    echo '<div class="ttb-wy-editor' . $tall_cls . '" '
+       . 'id="' . esc_attr($editor_id) . '" '
+       . 'contenteditable="true" '
+       . 'data-hidden="' . esc_attr($hidden_id) . '" '
+       . 'data-placeholder="' . esc_attr($placeholder) . '">';
+    // Usar wp_kses_post para mostrar HTML guardado de forma segura
+    if ($initial_html) {
+      echo wp_kses_post($initial_html);
+    }
+    echo '</div>';
+
+    echo '</div>'; // .ttb-wy-wrap
+
+    return $editor_id;
+  }
+
+  /**
+   * Inyecta el JS que inicializa los editores WYSIWYG y sincroniza con hidden inputs.
+   * Se llama UNA sola vez por página.
+   */
+  private static function inject_wysiwyg_js() {
+    static $js_injected = false;
+    if ($js_injected) return;
+    $js_injected = true;
+    ?>
+<script>
+(function(){
+  'use strict';
+
+  // ── Inicializa todos los editores WYSIWYG del admin social ──
+  function initWysiwyg() {
+    document.querySelectorAll('.ttb-wy-bar').forEach(function(bar) {
+      var edId  = bar.getAttribute('data-editor');
+      var editor = document.getElementById(edId);
+      if (!editor || bar._ttbWyInit) return;
+      bar._ttbWyInit = true;
+
+      // Barra de herramientas
+      bar.querySelectorAll('[data-cmd]').forEach(function(btn) {
+        btn.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          var cmd = btn.getAttribute('data-cmd');
+          if (cmd.indexOf('|') !== -1) {
+            var parts = cmd.split('|');
+            document.execCommand(parts[0], false, parts[1]);
+          } else {
+            document.execCommand(cmd, false, null);
+          }
+          editor.focus();
+          syncHidden(editor);
+          updateActiveStates(bar, editor);
+        });
+      });
+
+      // Sincronizar al escribir
+      editor.addEventListener('input',  function() { syncHidden(editor); });
+      editor.addEventListener('keyup',  function() { updateActiveStates(bar, editor); });
+      editor.addEventListener('mouseup',function() { updateActiveStates(bar, editor); });
+    });
+  }
+
+  function syncHidden(editor) {
+    var hidId  = editor.getAttribute('data-hidden');
+    var hidden = document.getElementById(hidId);
+    if (hidden) hidden.value = editor.innerHTML;
+  }
+
+  function syncAllHidden() {
+    document.querySelectorAll('.ttb-wy-editor[data-hidden]').forEach(function(editor) {
+      syncHidden(editor);
+    });
+  }
+
+  function updateActiveStates(bar, editor) {
+    bar.querySelectorAll('[data-cmd]').forEach(function(btn) {
+      var cmd = btn.getAttribute('data-cmd').split('|')[0];
+      try { btn.classList.toggle('active', document.queryCommandState(cmd)); } catch(e) {}
+    });
+  }
+
+  // Sincronizar ANTES de enviar cualquier formulario
+  document.addEventListener('submit', function() {
+    syncAllHidden();
+  }, true);
+
+  // Observador para editores que se crean dinámicamente (slots nuevos, modal)
+  var observer = new MutationObserver(function() {
+    initWysiwyg();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Inicialización inicial
+  document.addEventListener('DOMContentLoaded', initWysiwyg);
+  // Por si el DOM ya está listo
+  if (document.readyState !== 'loading') initWysiwyg();
+})();
+</script>
+<?php
+  }
+
+
   public static function render() {
     $tab = sanitize_text_field($_GET['sstab'] ?? 'clients');
     $sc  = self::active_client_id();
@@ -87,6 +258,7 @@ class TTB_Social_Admin {
       default:          self::render_clients($sc);               break;
     }
   }
+
 
   /* ════════════════════════════════
      SELECTOR GLOBAL DE CLIENTE
@@ -185,10 +357,6 @@ class TTB_Social_Admin {
     return strpos((string)$mime, 'video/') === 0;
   }
 
-  /**
-   * Sube UN archivo y devuelve su URL, o false si hay error.
-   * Para múltiples archivos se llama en bucle.
-   */
   private static function upload_single_creative($file_data, $date_label) {
     $max_mb = (int)get_option('ttb_social_max_filesize', 500);
     $mime   = $file_data['type'];
@@ -231,17 +399,11 @@ class TTB_Social_Admin {
     return wp_get_attachment_url($att_id) ?: null;
   }
 
-  /**
-   * Procesa los archivos subidos para un slot de post.
-   * Acepta hasta MAX_FILES_PER_POST archivos.
-   * Devuelve ['urls' => [...], 'type' => 'post'|'video'|'carousel'] o false si error.
-   */
   private static function process_post_files($slot_index, $date_label) {
     $max_per_post = 5;
     $urls         = [];
     $has_video    = false;
 
-    // Soporte tanto para input múltiple (array) como para input único legacy
     $file_key = 'sp_creative_' . $slot_index;
 
     if (empty($_FILES[$file_key])) {
@@ -250,7 +412,6 @@ class TTB_Social_Admin {
 
     $files_raw = $_FILES[$file_key];
 
-    // Normalizar: si es un único archivo (no array), convertir a array
     if (!is_array($files_raw['name'])) {
       $files_raw = [
         'name'     => [$files_raw['name']],
@@ -275,7 +436,7 @@ class TTB_Social_Admin {
       ];
 
       $url = self::upload_single_creative($file_data, $date_label);
-      if ($url === false) return false; // error ya seteado
+      if ($url === false) return false;
       if ($url) {
         $urls[] = $url;
         if (self::is_video_url($url) || self::is_video_mime($file_data['type'])) {
@@ -284,7 +445,6 @@ class TTB_Social_Admin {
       }
     }
 
-    // Determinar tipo
     if ($has_video && count($urls) === 1) {
       $type = 'video';
     } elseif (count($urls) > 1) {
@@ -296,21 +456,19 @@ class TTB_Social_Admin {
     return ['urls' => $urls, 'type' => $type];
   }
 
+
   /* ════════════════════════════════
-     ACCIONES POST
+     ACCIONES POST (sin cambios)
   ════════════════════════════════ */
 
   private static function handle_resend_welcome(&$tab) {
     if (!isset($_POST['ttb_social_resend_welcome'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_resend_welcome')) return;
-
     $id = (int)($_POST['sc_id'] ?? 0);
     if (!$id) return;
-
     global $wpdb;
     $client = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . TTB_Social_DB::clients_table() . " WHERE id=%d", $id));
     if (!$client) return;
-
     (new TTB_Social_Mailer())->send_welcome($client);
     TTB_Social_DB::log($id, null, 'email_welcome_sent', 'admin', ['trigger' => 'manual_resend']);
     self::set_flash('success', 'Email de acceso reenviado.');
@@ -342,22 +500,22 @@ class TTB_Social_Admin {
     $created_ids = [];
 
     foreach ($posts_data as $idx => $p) {
-      $date = sanitize_text_field($p['date'] ?? '');
-      $copy = sanitize_textarea_field($p['copy'] ?? '');
-      $note = sanitize_textarea_field($p['note'] ?? '');
+      $date      = sanitize_text_field($p['date'] ?? '');
+      // Copy puede contener HTML del WYSIWYG — usar wp_kses_post
+      $copy      = wp_kses_post(wp_unslash($p['copy'] ?? ''));
+      // Note puede contener HTML ligero
+      $note      = wp_kses_post(wp_unslash($p['note'] ?? ''));
 
       if (!$date) continue;
 
       $week_group = TTB_Social_DB::week_group_for_date($date);
 
-      // Procesar archivos (múltiples)
       $file_result = self::process_post_files($idx, $date);
       if ($file_result === false) { $tab = 'calendar'; return; }
 
       $urls      = $file_result['urls'];
       $post_type = $file_result['type'];
 
-      // Retrocompatibilidad: creative_url = primer archivo
       $creative_url  = $urls[0] ?? '';
       $creative_urls = !empty($urls) ? wp_json_encode($urls, JSON_UNESCAPED_UNICODE) : null;
 
@@ -414,10 +572,10 @@ class TTB_Social_Admin {
 
     $post_id  = (int)($_POST['sp_post_id'] ?? 0);
     $date     = sanitize_text_field($_POST['sp_date'] ?? '');
-    $copy     = sanitize_textarea_field($_POST['sp_copy'] ?? '');
-    $note     = sanitize_textarea_field($_POST['sp_note'] ?? '');
+    // Copy y note pueden contener HTML del WYSIWYG
+    $copy     = wp_kses_post(wp_unslash($_POST['sp_copy'] ?? ''));
+    $note     = wp_kses_post(wp_unslash($_POST['sp_note'] ?? ''));
     $keep_url = esc_url_raw($_POST['sp_keep_creative_url'] ?? '');
-    // URLs existentes a conservar (JSON array)
     $keep_urls_raw = sanitize_text_field($_POST['sp_keep_creative_urls'] ?? '');
     $keep_urls = json_decode($keep_urls_raw, true);
     if (!is_array($keep_urls)) $keep_urls = $keep_url ? [$keep_url] : [];
@@ -426,13 +584,11 @@ class TTB_Social_Admin {
       self::set_flash('error', 'Datos incompletos.'); $tab = 'calendar'; return;
     }
 
-    // Procesar nuevos archivos subidos (se añaden a los existentes hasta el máximo)
     $new_urls = [];
     $has_new_video = false;
     $max_per_post  = 5;
 
     if (!empty($_FILES['sp_creative']['tmp_name'])) {
-      // Normalizar
       $files_raw = $_FILES['sp_creative'];
       if (!is_array($files_raw['name'])) {
         $files_raw = [
@@ -466,7 +622,6 @@ class TTB_Social_Admin {
 
     $all_urls = array_merge($keep_urls, $new_urls);
 
-    // Determinar tipo
     if (count($all_urls) > 1) {
       $post_type = 'carousel';
     } elseif (!empty($all_urls) && (self::is_video_url($all_urls[0]) || $has_new_video)) {
@@ -524,10 +679,8 @@ class TTB_Social_Admin {
   private static function handle_post_delete(&$tab) {
     if (!isset($_POST['ttb_social_post_delete'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_post_delete')) return;
-
     $post_id = (int)($_POST['sp_post_id'] ?? 0);
     if (!$post_id) return;
-
     global $wpdb;
     $post = $wpdb->get_row($wpdb->prepare("SELECT client_id FROM " . TTB_Social_DB::posts_table() . " WHERE id=%d", $post_id));
     TTB_Social_DB::log($post->client_id ?? null, $post_id, 'post_deleted', 'admin', []);
@@ -539,17 +692,14 @@ class TTB_Social_Admin {
   private static function handle_post_status(&$tab) {
     if (!isset($_POST['ttb_social_post_status'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_post_status')) return;
-
     $post_id    = (int)($_POST['sp_post_id']    ?? 0);
     $new_status = sanitize_text_field($_POST['sp_new_status'] ?? '');
     $allowed    = ['pending_approval','approved','rejected','published'];
     if (!$post_id || !in_array($new_status, $allowed, true)) return;
-
     global $wpdb;
     $posts_table = TTB_Social_DB::posts_table();
     $post        = $wpdb->get_row($wpdb->prepare("SELECT client_id FROM $posts_table WHERE id=%d", $post_id));
     if (!$post) return;
-
     $event = ($new_status === 'published') ? 'post_published' : 'post_draft_restored';
     $wpdb->update($posts_table, ['status' => $new_status, 'updated_at' => TTB_Social_DB::now()], ['id' => $post_id]);
     TTB_Social_DB::log($post->client_id, $post_id, $event, 'admin', ['new_status' => $new_status]);
@@ -571,7 +721,6 @@ class TTB_Social_Admin {
   private static function handle_audit_clear(&$tab) {
     if (!isset($_POST['ttb_social_audit_clear'])) return;
     if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_social_audit_clear')) return;
-
     TTB_Social_DB::clear_audit();
     TTB_Social_DB::log(null, null, 'audit_cleared', 'admin', ['trigger' => 'manual']);
     self::set_flash('success', 'Registros de auditoría eliminados.');
@@ -596,8 +745,9 @@ class TTB_Social_Admin {
     $tab = 'settings';
   }
 
+
   /* ════════════════════════════════
-     RENDER: CLIENTES
+     RENDER: CLIENTES (sin cambios)
   ════════════════════════════════ */
   private static function render_clients($sc = 0) {
     global $wpdb;
@@ -719,8 +869,9 @@ class TTB_Social_Admin {
     echo '</tbody></table></div></div>';
   }
 
+
   /* ════════════════════════════════
-     RENDER: CONTENIDO
+     RENDER: CONTENIDO (sin cambios)
   ════════════════════════════════ */
   private static function render_content($sc = 0) {
     global $wpdb;
@@ -772,8 +923,9 @@ class TTB_Social_Admin {
     echo '</div>';
   }
 
+
   /* ════════════════════════════════
-     RENDER: CALENDARIO
+     RENDER: CALENDARIO — con WYSIWYG
   ════════════════════════════════ */
   private static function render_calendar($sc = 0) {
     global $wpdb;
@@ -821,126 +973,30 @@ class TTB_Social_Admin {
       }
     }
 
-    // ── CSS para el modal de nuevo post y para galería ──
+    // ── Inyectar estilos y JS WYSIWYG ──
+    self::inject_wysiwyg_styles();
+    self::inject_wysiwyg_js();
+
     echo '
     <style>
-    .ttb-newpost-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,.52);
-      backdrop-filter: blur(5px);
-      -webkit-backdrop-filter: blur(5px);
-      z-index: 99998;
-      align-items: flex-start;
-      justify-content: center;
-      padding: 24px 16px 40px;
-      overflow-y: auto;
-    }
-    .ttb-newpost-overlay.active { display: flex; }
-    .ttb-newpost-modal {
-      background: #fff;
-      border-radius: 22px;
-      width: 100%;
-      max-width: 680px;
-      margin: auto;
-      box-shadow: 0 32px 80px rgba(0,0,0,.28);
-      overflow: hidden;
-      animation: ttbModalUp .35s cubic-bezier(.34,1.56,.64,1) both;
-    }
-    .ttb-newpost-modal-header {
-      background: linear-gradient(135deg, var(--ttb-pink) 0%, #a8005a 100%);
-      padding: 22px 28px 18px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .ttb-newpost-modal-header h3 { margin:0; color:#fff; font-size:18px; font-weight:900; }
-    .ttb-newpost-modal-header p  { margin:4px 0 0; color:rgba(255,255,255,.80); font-size:13px; }
-    .ttb-newpost-modal-close {
-      background: rgba(255,255,255,.18);
-      border: none; border-radius: 50%;
-      width: 34px; height: 34px; font-size: 18px;
-      cursor: pointer; color: #fff;
-      line-height: 34px; text-align: center; flex-shrink: 0;
-      transition: background .15s;
-    }
-    .ttb-newpost-modal-close:hover { background: rgba(255,255,255,.30); }
-    .ttb-newpost-modal-body {
-      padding: 24px 28px 28px;
-      max-height: 72vh;
-      overflow-y: auto;
-    }
-    /* Galería/carrusel en admin */
-    .ttb-admin-gallery {
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px;
-      margin-bottom:10px;
-    }
-    .ttb-admin-gallery-item {
-      position:relative;
-      width:80px;
-      height:80px;
-      border-radius:8px;
-      overflow:hidden;
-      border:1px solid var(--ttb-border);
-      background:#f0f0f0;
-      flex-shrink:0;
-    }
-    .ttb-admin-gallery-item img,
-    .ttb-admin-gallery-item video {
-      width:100%; height:100%; object-fit:cover; display:block;
-    }
-    .ttb-admin-gallery-badge {
-      position:absolute;
-      top:3px; left:3px;
-      background:rgba(0,0,0,.6);
-      color:#fff;
-      font-size:9px;
-      font-weight:900;
-      padding:2px 5px;
-      border-radius:4px;
-    }
-    .ttb-admin-gallery-remove {
-      position:absolute;
-      top:3px; right:3px;
-      background:#e11d48;
-      color:#fff;
-      border:none;
-      border-radius:50%;
-      width:18px; height:18px;
-      font-size:9px;
-      font-weight:900;
-      cursor:pointer;
-      line-height:18px;
-      text-align:center;
-      padding:0;
-    }
-    /* Preview de archivos nuevos en el slot */
-    .ttb-slot-preview {
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px;
-      margin-top:8px;
-    }
-    .ttb-slot-preview-item {
-      width:64px;
-      height:64px;
-      border-radius:8px;
-      overflow:hidden;
-      border:1px solid var(--ttb-border);
-      background:#f0f0f0;
-      position:relative;
-    }
-    .ttb-slot-preview-item img { width:100%;height:100%;object-fit:cover;display:block; }
-    .ttb-slot-preview-rm {
-      position:absolute;top:2px;right:2px;
-      background:#e11d48;color:#fff;border:none;border-radius:50%;
-      width:16px;height:16px;font-size:9px;cursor:pointer;
-      line-height:16px;text-align:center;padding:0;
-    }
+    .ttb-newpost-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.52);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);z-index:99998;align-items:flex-start;justify-content:center;padding:24px 16px 40px;overflow-y:auto}
+    .ttb-newpost-overlay.active{display:flex}
+    .ttb-newpost-modal{background:#fff;border-radius:22px;width:100%;max-width:680px;margin:auto;box-shadow:0 32px 80px rgba(0,0,0,.28);overflow:hidden;animation:ttbModalUp .35s cubic-bezier(.34,1.56,.64,1) both}
+    .ttb-newpost-modal-header{background:linear-gradient(135deg,var(--ttb-pink) 0%,#a8005a 100%);padding:22px 28px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .ttb-newpost-modal-header h3{margin:0;color:#fff;font-size:18px;font-weight:900}
+    .ttb-newpost-modal-header p{margin:4px 0 0;color:rgba(255,255,255,.80);font-size:13px}
+    .ttb-newpost-modal-close{background:rgba(255,255,255,.18);border:none;border-radius:50%;width:34px;height:34px;font-size:18px;cursor:pointer;color:#fff;line-height:34px;text-align:center;flex-shrink:0;transition:background .15s}
+    .ttb-newpost-modal-close:hover{background:rgba(255,255,255,.30)}
+    .ttb-newpost-modal-body{padding:24px 28px 28px;max-height:72vh;overflow-y:auto}
+    .ttb-admin-gallery{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+    .ttb-admin-gallery-item{position:relative;width:80px;height:80px;border-radius:8px;overflow:hidden;border:1px solid var(--ttb-border);background:#f0f0f0;flex-shrink:0}
+    .ttb-admin-gallery-item img,.ttb-admin-gallery-item video{width:100%;height:100%;object-fit:cover;display:block}
+    .ttb-admin-gallery-badge{position:absolute;top:3px;left:3px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;font-weight:900;padding:2px 5px;border-radius:4px}
+    .ttb-admin-gallery-remove{position:absolute;top:3px;right:3px;background:#e11d48;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:9px;font-weight:900;cursor:pointer;line-height:18px;text-align:center;padding:0}
+    .ttb-slot-preview{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .ttb-slot-preview-item{width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--ttb-border);background:#f0f0f0;position:relative}
+    .ttb-slot-preview-item img{width:100%;height:100%;object-fit:cover;display:block}
+    .ttb-slot-preview-rm{position:absolute;top:2px;right:2px;background:#e11d48;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:9px;cursor:pointer;line-height:16px;text-align:center;padding:0}
     </style>';
 
     // ── Modal nuevo post ──
@@ -987,13 +1043,11 @@ class TTB_Social_Admin {
     echo '<button class="ttb-btn" name="ttb_social_week_create" value="1">📨 Crear y notificar al cliente</button>';
     echo '</div>';
     echo '</form>';
-
     echo '</div></div></div>';
 
-// JS modal + slots
+    // ── JS modal + slots dinámicos ──
     echo '<script>
     (function(){
-      /* ── Modal abrir/cerrar ── */
       window.ttbOpenNewPost = function() {
         document.getElementById("ttb-newpost-overlay").classList.add("active");
         document.body.style.overflow = "hidden";
@@ -1009,12 +1063,11 @@ class TTB_Social_Admin {
         if (e.key === "Escape" && document.getElementById("ttb-newpost-overlay").classList.contains("active"))
           ttbCloseNewPost();
       });
- 
+
       var slotIdx = 1;
       var MAX_PER_POST = ' . $max_per_post . ';
       var MAX_MB = ' . $max_mb . ';
- 
-      /* ── Preview reutilizable ── */
+
       function renderPreview(input, previewEl) {
         previewEl.innerHTML = "";
         var files = Array.from(input.files);
@@ -1034,18 +1087,8 @@ class TTB_Social_Admin {
           }
           previewEl.appendChild(item);
         });
-        var counter = document.createElement("p");
-        counter.style.cssText = "font-size:12px;color:var(--ttb-muted);margin:4px 0 0;width:100%";
-        if (files.length > MAX_PER_POST) {
-          counter.style.color = "#e11d48";
-          counter.textContent = "⚠️ Solo se subirán los primeros " + MAX_PER_POST + " archivos.";
-        } else {
-          counter.textContent = limited.length + " archivo" + (limited.length === 1 ? "" : "s") + " seleccionado" + (limited.length === 1 ? "" : "s");
-        }
-        previewEl.appendChild(counter);
       }
- 
-      /* ── Vincular listener a un slot por su índice ── */
+
       function bindSlot(idx) {
         var fi = document.getElementById("sp-fi-" + idx);
         var pr = document.getElementById("sp-prev-" + idx);
@@ -1053,17 +1096,19 @@ class TTB_Social_Admin {
         fi._ttbBound = true;
         fi.addEventListener("change", function() { renderPreview(fi, pr); });
       }
- 
-      /* ── Vincular el slot 0 generado por PHP ── */
       bindSlot(0);
- 
-      /* ── Añadir slots dinámicos ── */
+
       document.getElementById("ttb-add-post-slot").addEventListener("click", function(){
         var container = document.getElementById("ttb-posts-slots");
         var slot = document.createElement("div");
         slot.className = "ttb-week-slot";
         slot.style.cssText = "border:1.5px solid var(--ttb-border);border-radius:14px;padding:16px;margin-bottom:12px;position:relative;background:#fff";
- 
+
+        var edId  = "ttb-wy-dyn-ed-" + slotIdx;
+        var hidId = "ttb-wy-dyn-hid-" + slotIdx;
+        var noteEdId  = "ttb-wy-dyn-note-ed-" + slotIdx;
+        var noteHidId = "ttb-wy-dyn-note-hid-" + slotIdx;
+
         slot.innerHTML =
           \'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">\'
           + \'<strong style="font-size:14px;color:var(--ttb-text)">📌 Post #\' + (slotIdx + 1) + \'</strong>\'
@@ -1074,21 +1119,47 @@ class TTB_Social_Admin {
           + \'<input class="ttb-input" type="date" name="sp_posts[\' + slotIdx + \'][date]" required value="\' + new Date().toISOString().split("T")[0] + \'"></div>\'
           + \'<div><label>Archivos (máx. \' + MAX_PER_POST + \')</label>\'
           + \'<input class="ttb-input" type="file" name="sp_creative_\' + slotIdx + \'[]" id="sp-fi-\' + slotIdx + \'" data-slot="\' + slotIdx + \'" multiple style="width:100%;cursor:pointer" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm">\'
-          + \'<small class="ttb-muted" style="display:block;margin-top:4px">Hasta \' + MAX_PER_POST + \' archivos · Max. \' + MAX_MB + \' MB c/u</small>\'
           + \'<div class="ttb-slot-preview" id="sp-prev-\' + slotIdx + \'"></div>\'
           + \'</div></div>\'
-          + \'<div style="margin-top:10px"><label>Copy</label>\'
-          + \'<textarea name="sp_posts[\' + slotIdx + \'][copy]" class="ttb-textarea" style="min-height:70px" placeholder="Texto de la publicación..."></textarea></div>\'
-          + \'<div style="margin-top:10px"><label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>\'
-          + \'<input class="ttb-input" type="text" name="sp_posts[\' + slotIdx + \'][note]" placeholder="Ej: He usado las fotos que nos mandaste."></div>\';
- 
+          + \'<div style="margin-top:10px">\'
+          + \'<label>Copy</label>\'
+          + \'<input type="hidden" id="\' + hidId + \'" name="sp_posts[\' + slotIdx + \'][copy]" value="">\'
+          + \'<div class="ttb-wy-wrap">\'
+          + \'<div class="ttb-wy-bar" data-editor="\' + edId + \'">\'
+          + \'<button type="button" data-cmd="bold"><b>N</b></button>\'
+          + \'<button type="button" data-cmd="italic"><i>C</i></button>\'
+          + \'<button type="button" data-cmd="underline"><u>S</u></button>\'
+          + \'<span class="ttb-wy-sep"></span>\'
+          + \'<button type="button" data-cmd="insertUnorderedList">• Lista</button>\'
+          + \'<button type="button" data-cmd="insertOrderedList">1. Lista</button>\'
+          + \'<span class="ttb-wy-sep"></span>\'
+          + \'<button type="button" data-cmd="formatBlock|<blockquote>">❝ Cita</button>\'
+          + \'<button type="button" data-cmd="formatBlock|<p>">¶ Normal</button>\'
+          + \'<span class="ttb-wy-sep"></span>\'
+          + \'<button type="button" data-cmd="removeFormat">✕ Limpiar</button>\'
+          + \'</div>\'
+          + \'<div class="ttb-wy-editor ttb-wy-editor--tall" id="\' + edId + \'" contenteditable="true" data-hidden="\' + hidId + \'" data-placeholder="Texto de la publicación..."></div>\'
+          + \'</div></div>\'
+          + \'<div style="margin-top:10px">\'
+          + \'<label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>\'
+          + \'<input type="hidden" id="\' + noteHidId + \'" name="sp_posts[\' + slotIdx + \'][note]" value="">\'
+          + \'<div class="ttb-wy-wrap">\'
+          + \'<div class="ttb-wy-bar" data-editor="\' + noteEdId + \'">\'
+          + \'<button type="button" data-cmd="bold"><b>N</b></button>\'
+          + \'<button type="button" data-cmd="italic"><i>C</i></button>\'
+          + \'<button type="button" data-cmd="underline"><u>S</u></button>\'
+          + \'<span class="ttb-wy-sep"></span>\'
+          + \'<button type="button" data-cmd="insertUnorderedList">• Lista</button>\'
+          + \'</div>\'
+          + \'<div class="ttb-wy-editor" id="\' + noteEdId + \'" contenteditable="true" data-hidden="\' + noteHidId + \'" data-placeholder="Ej: He usado las fotos que nos mandaste."></div>\'
+          + \'</div></div>\';
+
         container.appendChild(slot);
         bindSlot(slotIdx);
         slotIdx++;
+        // Re-inicializar WYSIWYG para los nuevos editores
+        if (typeof initWysiwyg === "function") initWysiwyg();
       });
- 
-      /* compatibilidad con código previo */
-      window.ttbInitSlotPreview = function() {};
     })();
     </script>';
 
@@ -1097,6 +1168,8 @@ class TTB_Social_Admin {
       $cancel_url      = esc_url(self::base_url('calendar', ['filter_month' => $filter_month]));
       $existing_urls   = TTB_Social_DB::get_post_creative_urls($edit_post);
       $existing_urls_json = esc_attr(wp_json_encode($existing_urls));
+      $edit_copy_html  = $edit_post->copy_text ?? '';
+      $edit_note_html  = $edit_post->creative_note ?? '';
 
       echo '<div class="ttb-modal-overlay" id="ttbSpEditModal" role="dialog" aria-modal="true" style="display:flex">';
       echo '<div class="ttb-modal ttb-edit-modal" style="max-width:580px"><h3 class="ttb-edit-modal__title">Editar publicación</h3>';
@@ -1108,7 +1181,7 @@ class TTB_Social_Admin {
 
       echo '<div><label>Fecha</label><input class="ttb-input" type="date" name="sp_date" value="' . esc_attr($edit_post->scheduled_date) . '" required></div>';
 
-      // Galería de archivos existentes con opción de eliminar
+      // Galería archivos existentes
       echo '<div style="margin-top:10px"><label>Archivos actuales</label>';
       if (!empty($existing_urls)) {
         echo '<div class="ttb-admin-gallery" id="ttb-edit-gallery">';
@@ -1131,29 +1204,30 @@ class TTB_Social_Admin {
       }
       echo '</div>';
 
-      // Añadir nuevos archivos
       $slots_remaining = $max_per_post - count($existing_urls);
       if ($slots_remaining > 0) {
         echo '<div style="margin-top:10px"><label>Añadir más archivos <span style="font-weight:400;color:var(--ttb-muted)">(máx. ' . $slots_remaining . ' adicional' . ($slots_remaining === 1 ? '' : 'es') . ')</span></label>';
         echo '<input class="ttb-input" type="file" name="sp_creative[]" multiple id="sp-edit-fi"
               accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm">';
-        echo '<small class="ttb-muted" style="display:block;margin-top:4px">Max. ' . $max_mb . ' MB por archivo</small>';
         echo '<div class="ttb-slot-preview" id="sp-edit-preview"></div>';
         echo '</div>';
-      } else {
-        echo '<p style="margin-top:8px;font-size:13px;color:var(--ttb-muted)">⚠️ Ya tienes el máximo de ' . $max_per_post . ' archivos.</p>';
       }
 
-      $copy_val = $edit_post->copy_text ?? '';
-      echo '<div style="margin-top:10px"><label>Copy</label><textarea name="sp_copy" class="ttb-textarea" style="min-height:80px">' . esc_textarea($copy_val) . '</textarea></div>';
-      echo '<div style="margin-top:10px"><label>Nota para el cliente</label><input class="ttb-input" type="text" name="sp_note" value="' . esc_attr($edit_post->creative_note ?? '') . '"></div>';
+      // Copy WYSIWYG completo
+      echo '<div style="margin-top:10px"><label>Copy</label>';
+      self::wysiwyg_field('sp_copy', $edit_copy_html, 'Texto de la publicación...', true, true);
+      echo '</div>';
+
+      // Nota WYSIWYG ligero
+      echo '<div style="margin-top:10px"><label>Nota para el cliente</label>';
+      self::wysiwyg_field('sp_note', $edit_note_html, 'Ej: He usado las fotos que nos mandaste.', false, false);
+      echo '</div>';
 
       echo '<div class="ttb-actions" style="margin-top:16px">';
       echo '<a href="' . $cancel_url . '" class="ttb-btn ttb-btn--ghost">Cancelar</a>';
       echo '<button class="ttb-btn" name="ttb_social_post_edit" value="1">Guardar cambios</button>';
       echo '</div></form></div></div>';
 
-      // JS para eliminar archivos existentes en la edición
       echo '<script>
       (function(){
         var keepUrls = ' . wp_json_encode($existing_urls) . ';
@@ -1219,16 +1293,20 @@ class TTB_Social_Admin {
     echo '</div></div>';
   }
 
-private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
+
+  /**
+   * Renderiza un slot de post con editores WYSIWYG para Copy y Nota.
+   */
+  private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
     echo '<div class="ttb-week-slot" style="border:1.5px solid var(--ttb-border);border-radius:14px;padding:16px;margin-bottom:12px;background:#fff">';
     echo '<strong style="font-size:14px;color:var(--ttb-text);display:block;margin-bottom:12px">📌 Post #' . ($idx + 1) . '</strong>';
     echo '<div class="ttb-grid2">';
- 
-    // Columna fecha
+
+    // Fecha
     echo '<div><label>Fecha <span class="ttb-required">*</span></label>';
     echo '<input class="ttb-input" type="date" name="sp_posts[' . $idx . '][date]" required value="' . esc_attr(date('Y-m-d')) . '"></div>';
- 
-    // Columna archivos — SIN <label> wrapper, el input va directo
+
+    // Archivos
     echo '<div>';
     echo '<label>Archivos <span style="font-weight:400;color:var(--ttb-muted)">(máx. ' . $max_per_post . ')</span></label>';
     echo '<input class="ttb-input" type="file"'
@@ -1241,17 +1319,36 @@ private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
     echo '<small class="ttb-muted" style="display:block;margin-top:4px">JPG, PNG, GIF, WEBP, MP4, MOV · Hasta ' . $max_per_post . ' archivos · Máx. ' . $max_mb . ' MB c/u</small>';
     echo '<div class="ttb-slot-preview" id="sp-prev-' . $idx . '"></div>';
     echo '</div>';
- 
+
     echo '</div>'; // .ttb-grid2
- 
-    echo '<div style="margin-top:10px"><label>Copy (texto de la publicación)</label>';
-    echo '<textarea name="sp_posts[' . $idx . '][copy]" class="ttb-textarea" style="min-height:70px" placeholder="Texto que acompañará a la publicación..."></textarea></div>';
- 
-    echo '<div style="margin-top:10px"><label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
-    echo '<input class="ttb-input" type="text" name="sp_posts[' . $idx . '][note]" placeholder="Ej: He usado las fotos que nos mandaste."></div>';
- 
+
+    // Copy — WYSIWYG completo
+    echo '<div style="margin-top:10px">';
+    echo '<label>Copy (texto de la publicación)</label>';
+    self::wysiwyg_field(
+      'sp_posts[' . $idx . '][copy]',
+      '',
+      'Texto que acompañará a la publicación...',
+      true,  // full toolbar
+      true   // tall
+    );
     echo '</div>';
+
+    // Nota — WYSIWYG ligero
+    echo '<div style="margin-top:10px">';
+    echo '<label>Nota para el cliente <span style="font-weight:400;color:var(--ttb-muted)">(opcional)</span></label>';
+    self::wysiwyg_field(
+      'sp_posts[' . $idx . '][note]',
+      '',
+      'Ej: He usado las fotos que nos mandaste.',
+      false, // light toolbar
+      false  // normal height
+    );
+    echo '</div>';
+
+    echo '</div>'; // .ttb-week-slot
   }
+
 
   private static function render_posts_data_store($posts, $action_url, $statuses, $filter_month, $filter_client) {
     echo '<div id="ttb-posts-store" style="display:none">';
@@ -1262,11 +1359,11 @@ private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
       $back_params = ['filter_month' => $filter_month];
       if ($filter_client && !$sc) $back_params['filter_client'] = $filter_client;
       $edit_url    = esc_url(self::base_url('calendar', array_merge(['edit_sp' => (int)$post->id], $back_params)));
-      $copy_text   = $post->copy_text ?? '';
+      // copy_text puede contener HTML del WYSIWYG
+      $copy_html   = $post->copy_text ?? '';
       $week_label  = '';
       if ($post->week_group) $week_label = 'Semana ' . TTB_Social_DB::week_range_label($post->week_group);
 
-      // Obtener todas las URLs
       $all_urls = TTB_Social_DB::get_post_creative_urls($post);
       $url_count = count($all_urls);
 
@@ -1298,7 +1395,6 @@ private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
               <?php endif; ?>
             </div>
           <?php else: ?>
-            <!-- Galería de miniaturas en admin -->
             <div class="ttb-admin-gallery" style="margin-bottom:14px">
               <?php foreach ($all_urls as $i => $u): ?>
                 <?php $is_v = self::is_video_url($u); ?>
@@ -1316,13 +1412,24 @@ private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
           <?php endif; ?>
         <?php endif; ?>
 
-        <?php if ($copy_text): ?><div style="background:#f9fafb;border-radius:10px;padding:12px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;white-space:pre-line;border-left:3px solid var(--ttb-pink)"><?php echo esc_html($copy_text); ?></div><?php endif; ?>
-        <?php if ($post->creative_note): ?><div style="background:#fdf4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7e22ce;border:1px solid #e9d5ff"><?php echo esc_html($post->creative_note); ?></div><?php endif; ?>
+        <?php if ($copy_html): ?>
+          <div style="background:#f9fafb;border-radius:10px;padding:12px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;border-left:3px solid var(--ttb-pink)">
+            <?php echo wp_kses_post($copy_html); ?>
+          </div>
+        <?php endif; ?>
+
+        <?php if ($post->creative_note): ?>
+          <div style="background:#fdf4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7e22ce;border:1px solid #e9d5ff">
+            <?php echo wp_kses_post($post->creative_note); ?>
+          </div>
+        <?php endif; ?>
+
         <?php if ($post->status === 'rejected' && $post->client_note): ?>
           <div style="background:#fff1f2;border-radius:10px;padding:12px;margin-bottom:12px;font-size:13px;color:#be123c;border:1px solid #fecdd3">
             <strong style="display:block;margin-bottom:4px">Comentario del cliente:</strong><?php echo nl2br(esc_html($post->client_note)); ?>
           </div>
         <?php endif; ?>
+
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;border-top:1px solid var(--ttb-border);padding-top:14px">
           <a href="<?php echo $edit_url; ?>" class="ttb-btn ttb-btn--ghost ttb-btn--sm">Editar</a>
           <?php if ($post->status === 'approved'): ?>
@@ -1353,6 +1460,7 @@ private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
     }
     echo '</div>';
   }
+
 
   public static function render_calendar_grid($posts_by_day, $days_in, $start_dow, $year, $month, $action_url, $statuses, $filter_month, $filter_client, $is_admin) {
     $today_day    = (int)date('j');
@@ -1440,10 +1548,7 @@ private static function render_post_slot($idx, $max_mb, $max_per_post = 5) {
     <?php
   }
 
-  /* ════════════════════════════════
-     RENDER: AUDITORÍA, CONFIGURACIÓN
-     (sin cambios respecto al original)
-  ════════════════════════════════ */
+
   private static function render_audit($sc = 0) {
     global $wpdb;
     $audit_table = TTB_Social_DB::audit_table();
