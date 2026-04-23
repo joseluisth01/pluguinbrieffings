@@ -372,7 +372,7 @@ class TTB_Social_Admin {
   }
 
   private static function process_post_files($slot_index, $date_label) {
-    $max_per_post = 5;
+    $max_per_post = 10;
     $urls         = [];
     $has_video    = false;
 

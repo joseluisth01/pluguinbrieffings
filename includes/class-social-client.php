@@ -622,8 +622,7 @@ class TTB_Social_Client {
         <?php endif; ?>
 
         <?php if ($copy_text): ?>
-          <div style="background:#f9fafb;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;white-space:pre-line;border-left:3px solid var(--ttb-pink)"><?php echo esc_html($copy_text); ?></div>
-        <?php endif; ?>
+<div style="background:#f9fafb;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;color:var(--ttb-text);line-height:1.7;border-left:3px solid var(--ttb-pink)"><?php echo wp_kses_post($copy_text); ?></div>        <?php endif; ?>
 
         <?php if ($post->creative_note): ?>
           <div style="background:#fdf4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7e22ce;border:1px solid #e9d5ff"><?php echo esc_html($post->creative_note); ?></div>

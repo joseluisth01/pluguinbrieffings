@@ -493,6 +493,10 @@ select.ttb-input {
   .ttb-row-actions { flex-direction: column; align-items: flex-start; }
   .ttb-table th:nth-child(3),
   .ttb-table td:nth-child(3) { display: none; }
+
+  .ttb-logo{
+    left:auto !important;
+  }
 }
 
 /* ════════════════════════════════════════
