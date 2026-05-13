@@ -912,13 +912,39 @@ class TTB_Social_Admin {
       $is_video = ($item->type === 'video') || self::is_video_url($item->file_url ?? '');
       echo '<div class="ttb-card" style="padding:12px">';
       if ($item->type === 'text' || !$item->file_url) {
-        echo '<div style="background:#f9fafb;border-radius:10px;padding:14px;min-height:100px;font-size:14px;color:var(--ttb-text);line-height:1.6;margin-bottom:10px">' . nl2br(esc_html(mb_substr($item->caption ?? '', 0, 200))) . '</div>';
+        $full_caption = (string)($item->caption ?? '');
+$needs_toggle = mb_strlen($full_caption) > 200;
+$preview_text = $needs_toggle ? mb_substr($full_caption, 0, 200) . '…' : $full_caption;
+$item_uid     = 'ttb-cap-' . (int)$item->id;
+
+echo '<div style="background:#f9fafb;border-radius:10px;padding:14px;min-height:60px;font-size:14px;color:var(--ttb-text);line-height:1.6;margin-bottom:6px">';
+echo '<span id="' . $item_uid . '-short">' . nl2br(esc_html($preview_text)) . '</span>';
+if ($needs_toggle) {
+    echo '<span id="' . $item_uid . '-full" style="display:none">' . nl2br(esc_html($full_caption)) . '</span>';
+    echo '<button type="button" onclick="ttbToggleCaption(\'' . esc_js($item_uid) . '\')" '
+       . 'id="' . $item_uid . '-btn" '
+       . 'style="display:block;margin-top:8px;background:none;border:none;color:var(--ttb-pink);font-size:12px;font-weight:700;cursor:pointer;padding:0">Ver más ↓</button>';
+}
+echo '</div>';
       } elseif ($is_video) {
         echo '<video src="' . esc_url($item->file_url) . '" controls style="width:100%;border-radius:10px;max-height:180px;background:#111;margin-bottom:10px"></video>';
       } else {
         echo '<a href="' . esc_url($item->file_url) . '" target="_blank"><img src="' . esc_url($item->file_url) . '" style="width:100%;border-radius:10px;aspect-ratio:1;object-fit:cover;display:block;margin-bottom:10px" alt=""></a>';
       }
-      if ($item->note) echo '<p style="font-size:12px;color:var(--ttb-muted);margin:0 0 8px;line-height:1.5">' . esc_html(mb_substr($item->note, 0, 100)) . '</p>';
+      if ($item->note) {
+    $full_note   = (string)$item->note;
+    $note_uid    = 'ttb-note-' . (int)$item->id;
+    $note_needs  = mb_strlen($full_note) > 100;
+    $note_preview = $note_needs ? mb_substr($full_note, 0, 100) . '…' : $full_note;
+    echo '<p style="font-size:12px;color:var(--ttb-muted);margin:0 0 8px;line-height:1.5">';
+    echo '<span id="' . $note_uid . '-short">' . esc_html($note_preview) . '</span>';
+    if ($note_needs) {
+        echo '<span id="' . $note_uid . '-full" style="display:none">' . esc_html($full_note) . '</span>';
+        echo '<button type="button" id="' . $note_uid . '-btn" onclick="ttbToggleCaption(\'' . esc_js($note_uid) . '\')" '
+           . 'style="background:none;border:none;color:var(--ttb-pink);font-size:11px;font-weight:700;cursor:pointer;padding:0;margin-left:4px">Ver más ↓</button>';
+    }
+    echo '</p>';
+}
       echo '<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:8px">';
       echo '<div><strong style="font-size:13px">' . esc_html($item->client_name) . '</strong><br><span style="font-size:12px;color:var(--ttb-muted)">' . esc_html(date_i18n('d/m/Y H:i', strtotime($item->created_at))) . '</span></div>';
       if ($item->used) echo '<span style="background:#ecfdf5;color:#065f46;font-size:11px;font-weight:900;padding:2px 8px;border-radius:999px;border:1px solid #6ee7b7">Usado</span>';
@@ -930,6 +956,20 @@ class TTB_Social_Admin {
       echo '</div>';
     }
     echo '</div>';
+    echo '<script>
+    if (!window.ttbToggleCaption) {
+        window.ttbToggleCaption = function(uid) {
+            var short = document.getElementById(uid + "-short");
+            var full  = document.getElementById(uid + "-full");
+            var btn   = document.getElementById(uid + "-btn");
+            if (!short || !full || !btn) return;
+            var expanded = full.style.display !== "none";
+            short.style.display = expanded ? "" : "none";
+            full.style.display  = expanded ? "none" : "";
+            btn.textContent = expanded ? "Ver más ↓" : "Ver menos ↑";
+        };
+    }
+    </script>';
   }
 
 
