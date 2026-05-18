@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) exit;
  */
 class TTB_WebRev_DB {
 
-  const SCHEMA_VERSION = 3; // v3: añade columna title
+  const SCHEMA_VERSION = 4; // v4: notify_seo + chat de revisión
 
   public static function projects_table() {
     global $wpdb;
@@ -24,6 +24,11 @@ class TTB_WebRev_DB {
     return $wpdb->prefix . 'ttb_webrev_audit';
   }
 
+  public static function messages_table() {
+    global $wpdb;
+    return $wpdb->prefix . 'ttb_webrev_messages';
+  }
+
   public static function create_tables() {
     global $wpdb;
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -32,6 +37,7 @@ class TTB_WebRev_DB {
     $projects  = self::projects_table();
     $revisions = self::revisions_table();
     $audit     = self::audit_table();
+    $messages  = self::messages_table();
 
     $sql1 = "CREATE TABLE $projects (
       id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -42,6 +48,7 @@ class TTB_WebRev_DB {
       figma_url_mobile TEXT NULL,
       token           VARCHAR(64) NOT NULL,
       status          VARCHAR(40) NOT NULL DEFAULT 'pending',
+      notify_seo      TINYINT(1) NOT NULL DEFAULT 0,
       last_notified   DATETIME NULL,
       notif_count     INT UNSIGNED NOT NULL DEFAULT 0,
       created_at      DATETIME NOT NULL,
@@ -80,12 +87,26 @@ class TTB_WebRev_DB {
       KEY created_idx (created_at)
     ) $charset;";
 
+    $sql4 = "CREATE TABLE $messages (
+      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      project_id  BIGINT UNSIGNED NOT NULL,
+      actor       VARCHAR(20) NOT NULL DEFAULT 'admin',
+      message     LONGTEXT NOT NULL,
+      created_at  DATETIME NOT NULL,
+      PRIMARY KEY (id),
+      KEY project_idx (project_id),
+      KEY actor_idx (actor),
+      KEY created_idx (created_at)
+    ) $charset;";
+
     dbDelta($sql1);
     dbDelta($sql2);
     dbDelta($sql3);
+    dbDelta($sql4);
 
     self::migrate_v2();
     self::migrate_v3();
+    self::migrate_v4();
 
     update_option('ttb_webrev_schema_version', self::SCHEMA_VERSION);
   }
@@ -95,6 +116,7 @@ class TTB_WebRev_DB {
     $table = self::projects_table();
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
     if (!$table_exists) return;
+
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'figma_url_mobile'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `figma_url_mobile` TEXT NULL AFTER `figma_url`");
@@ -106,9 +128,45 @@ class TTB_WebRev_DB {
     $table = self::projects_table();
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
     if (!$table_exists) return;
+
     $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'title'");
     if (empty($col)) {
       $wpdb->query("ALTER TABLE `$table` ADD COLUMN `title` VARCHAR(255) NULL AFTER `name`");
+    }
+  }
+
+  private static function migrate_v4() {
+    global $wpdb;
+
+    $table = self::projects_table();
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table'");
+    if ($table_exists) {
+      $col = $wpdb->get_results("SHOW COLUMNS FROM `$table` LIKE 'notify_seo'");
+      if (empty($col)) {
+        $wpdb->query("ALTER TABLE `$table` ADD COLUMN `notify_seo` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`");
+      }
+    }
+
+    $messages = self::messages_table();
+    $messages_exists = $wpdb->get_var("SHOW TABLES LIKE '$messages'");
+
+    if (!$messages_exists) {
+      require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+      $charset = $wpdb->get_charset_collate();
+
+      $sql = "CREATE TABLE $messages (
+        id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        project_id  BIGINT UNSIGNED NOT NULL,
+        actor       VARCHAR(20) NOT NULL DEFAULT 'admin',
+        message     LONGTEXT NOT NULL,
+        created_at  DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        KEY project_idx (project_id),
+        KEY actor_idx (actor),
+        KEY created_idx (created_at)
+      ) $charset;";
+
+      dbDelta($sql);
     }
   }
 
@@ -129,8 +187,10 @@ class TTB_WebRev_DB {
   public static function get_project_by_token($token) {
     global $wpdb;
     $table = self::projects_table();
+
     return $wpdb->get_row($wpdb->prepare(
-      "SELECT * FROM $table WHERE token = %s LIMIT 1", sanitize_text_field($token)
+      "SELECT * FROM $table WHERE token = %s LIMIT 1",
+      sanitize_text_field($token)
     ));
   }
 
@@ -141,6 +201,7 @@ class TTB_WebRev_DB {
   public static function get_projects_by_client_name($name) {
     global $wpdb;
     $table = self::projects_table();
+
     return $wpdb->get_results($wpdb->prepare(
       "SELECT * FROM $table WHERE name = %s ORDER BY created_at DESC",
       $name
@@ -149,6 +210,30 @@ class TTB_WebRev_DB {
 
   public static function client_url($token) {
     return home_url('/briefing?webrev=' . urlencode($token));
+  }
+
+  public static function add_message($project_id, $actor, $message) {
+    global $wpdb;
+
+    $wpdb->insert(self::messages_table(), [
+      'project_id' => (int)$project_id,
+      'actor'      => sanitize_text_field($actor),
+      'message'    => wp_kses_post($message),
+      'created_at' => self::now(),
+    ]);
+
+    return (int)$wpdb->insert_id;
+  }
+
+  public static function get_messages($project_id, $limit = 200) {
+    global $wpdb;
+    $table = self::messages_table();
+
+    return $wpdb->get_results($wpdb->prepare(
+      "SELECT * FROM $table WHERE project_id=%d ORDER BY created_at ASC LIMIT %d",
+      (int)$project_id,
+      (int)$limit
+    ));
   }
 
   public static function log($project_id, $event, $actor = 'system', $detail = []) {

@@ -134,13 +134,13 @@ class TTB_WebRev_Client
               <p style="margin:0 0 10px;font-size:14px;font-weight:900;color:#0369a1">💡 Cómo explicar bien los cambios</p>
               <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
                 <div style="font-size:13px;color:#0369a1;line-height:1.5">
-                  <strong>✏️ Bloque de texto</strong><br>Describe qué cambiar, en qué página y sección.
+                  <strong>✏️ Bloque de texto</strong><br>Úsalo solo como apoyo. Cada envío debe llevar al menos una captura.
                 </div>
                 <div style="font-size:13px;color:#0369a1;line-height:1.5">
                   <strong>🖼️ Captura anotada</strong><br>Sube una imagen y dibuja encima con flechas, subrayado o texto.
                 </div>
                 <div style="font-size:13px;color:#0369a1;line-height:1.5">
-                  <strong>📋 Combínalos</strong><br>Añade todos los bloques que necesites en el orden que quieras.
+                  <strong>📋 Imprescindible</strong><br>Sin captura o imagen de referencia no se podrá enviar la solicitud.
                 </div>
               </div>
             </div>
@@ -226,6 +226,8 @@ class TTB_WebRev_Client
         </div>
       <?php endif; ?>
 
+      <?php self::render_project_chat($project); ?>
+
     </div>
 
 <?php
@@ -235,6 +237,46 @@ class TTB_WebRev_Client
       (int)get_option('ttb_webrev_max_filesize', 5),
       (int)get_option('ttb_webrev_max_files', 10)
     );
+  }
+
+  private static function render_project_chat($project) {
+    $messages = TTB_WebRev_DB::get_messages((int)$project->id);
+    ?>
+      <div class="ttb-card">
+        <h3 style="margin:0 0 8px">💬 Chat con TicTac Comunicación</h3>
+        <p class="ttb-muted" style="margin:0 0 16px">Aquí puedes responder al equipo, resolver dudas o confirmar que los cambios están correctos.</p>
+
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px">
+          <?php if (!$messages): ?>
+            <p class="ttb-muted" style="margin:0">Todavía no hay mensajes en el chat.</p>
+          <?php else: ?>
+            <?php foreach ($messages as $m): ?>
+              <?php
+              $is_admin = $m->actor === 'admin';
+              $bg = $is_admin ? '#eff6ff' : '#fdf4ff';
+              $bc = $is_admin ? '#bfdbfe' : '#f9a8d4';
+              $align = $is_admin ? 'margin-right:auto' : 'margin-left:auto';
+              $label = $is_admin ? 'TicTac Comunicación' : 'Tú';
+              ?>
+              <div style="max-width:760px;<?php echo esc_attr($align); ?>;background:<?php echo esc_attr($bg); ?>;border:1px solid <?php echo esc_attr($bc); ?>;border-radius:14px;padding:12px 14px">
+                <div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:6px"><strong><?php echo esc_html($label); ?></strong><span class="ttb-muted" style="font-size:12px"><?php echo esc_html(date_i18n('d/m/Y H:i', strtotime($m->created_at))); ?></span></div>
+                <div style="font-size:14px;line-height:1.65;color:var(--ttb-text);white-space:pre-line"><?php echo nl2br(esc_html($m->message)); ?></div>
+              </div>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </div>
+
+        <form method="post" action="" style="display:flex;flex-direction:column;gap:10px">
+          <?php wp_nonce_field('ttb_webrev_message_' . $project->token); ?>
+          <input type="hidden" name="ttb_webrev_action" value="message">
+          <input type="hidden" name="ttb_webrev_token" value="<?php echo esc_attr($project->token); ?>">
+          <textarea class="ttb-textarea" name="ttb_webrev_message" required style="min-height:96px" placeholder="Escribe tu mensaje para el equipo..."></textarea>
+          <div class="ttb-actions" style="margin:0">
+            <button class="ttb-btn" type="submit">💬 Enviar mensaje</button>
+          </div>
+        </form>
+      </div>
+    <?php
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -431,7 +473,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
         '</div>'+
       '</div>'+
       '<div class="ttbwr-img-block" id="'+annoId+'-wrap">'+
-        /* Dropzone */
         '<div class="ttbwr-img-dropzone" id="'+annoId+'-dz" tabindex="0">'+
           '<p style="margin:0 0 6px;font-size:28px">📎</p>'+
           '<p style="margin:0 0 4px;font-weight:700;color:var(--ttb-text);font-size:14px">Arrastra una captura o haz clic para seleccionarla</p>'+
@@ -439,9 +480,7 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
           '<p style="margin:0;font-size:12px;color:var(--ttb-pink);font-weight:700">Podrás dibujar encima para señalar exactamente qué cambiar ✍️</p>'+
           '<input type="file" accept="image/*" style="display:none" id="'+annoId+'-input">'+
         '</div>'+
-        /* Editor anotaciones (oculto hasta cargar imagen) */
         '<div class="ttbwr-annotator" id="'+annoId+'-editor">'+
-          /* Toolbar */
           '<div class="ttbwr-anno-toolbar" id="'+annoId+'-toolbar">'+
             '<button type="button" class="ttbwr-anno-tool-btn active" data-tool="pencil" title="Lápiz libre">✏️ Lápiz</button>'+
             '<button type="button" class="ttbwr-anno-tool-btn" data-tool="highlighter" title="Subrayador">🖌️ Subrayado</button>'+
@@ -449,7 +488,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
             '<button type="button" class="ttbwr-anno-tool-btn" data-tool="rect" title="Rectángulo">⬜ Rect.</button>'+
             '<button type="button" class="ttbwr-anno-tool-btn" data-tool="text" title="Texto">🔤 Texto</button>'+
             '<div class="ttbwr-anno-sep"></div>'+
-            /* Colores */
             '<button type="button" class="ttbwr-anno-color-btn active" data-color="#ff3b3b" style="background:#ff3b3b" title="Rojo"></button>'+
             '<button type="button" class="ttbwr-anno-color-btn" data-color="#ff9500" style="background:#ff9500" title="Naranja"></button>'+
             '<button type="button" class="ttbwr-anno-color-btn" data-color="#ffcc00" style="background:#ffcc00" title="Amarillo"></button>'+
@@ -457,18 +495,15 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
             '<button type="button" class="ttbwr-anno-color-btn" data-color="#007aff" style="background:#007aff" title="Azul"></button>'+
             '<button type="button" class="ttbwr-anno-color-btn" data-color="#ffffff" style="background:#fff;border-color:#666" title="Blanco"></button>'+
             '<div class="ttbwr-anno-sep"></div>'+
-            /* Tamaño */
             '<button type="button" class="ttbwr-anno-size-btn" data-size="3" title="Fino">S</button>'+
             '<button type="button" class="ttbwr-anno-size-btn active" data-size="5" title="Medio">M</button>'+
             '<button type="button" class="ttbwr-anno-size-btn" data-size="10" title="Grueso">L</button>'+
             '<button type="button" class="ttbwr-anno-size-btn" data-size="18" title="Muy grueso">XL</button>'+
           '</div>'+
-          /* Canvas */
           '<div class="ttbwr-canvas-wrap" id="'+annoId+'-canvaswrap">'+
             '<canvas id="'+annoId+'-base" class="ttbwr-canvas-base"></canvas>'+
             '<canvas id="'+annoId+'-draw" class="ttbwr-canvas-draw"></canvas>'+
           '</div>'+
-          /* Bottom */
           '<div class="ttbwr-anno-bottom">'+
             '<div style="display:flex;gap:8px">'+
               '<button type="button" class="ttbwr-anno-undo-btn" id="'+annoId+'-undo">↩ Deshacer</button>'+
@@ -477,9 +512,7 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
             '<button type="button" class="ttbwr-anno-done-btn" id="'+annoId+'-done">✅ Guardar anotaciones</button>'+
           '</div>'+
         '</div>'+
-        /* Preview imagen anotada (oculto hasta confirmar) */
         '<div id="'+annoId+'-preview" style="display:none"></div>'+
-        /* Caption */
         '<textarea class="ttbwr-img-caption" id="'+annoId+'-caption" placeholder="Describe el cambio: ¿qué elemento hay que modificar? ¿cómo debería quedar?"></textarea>'+
       '</div>';
 
@@ -508,12 +541,11 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       size      : 5,
       drawing   : false,
       startX    : 0, startY : 0,
-      history   : [],     // snapshots del canvas de dibujo para undo
-      finalDataUrl: null, // dataURL de la imagen anotada (base + draw fusionados)
-      scale     : 1,      // relación px CSS / px canvas
+      history   : [],
+      finalDataUrl: null,
+      scale     : 1,
     };
 
-    /* ─ Dropzone ─ */
     dz.addEventListener('click',function(){fileInp.click();});
     dz.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' ')fileInp.click();});
     dz.addEventListener('dragover',function(e){e.preventDefault();dz.classList.add('dragover');});
@@ -528,12 +560,11 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       reader.onload=function(e){
         var img=new Image();
         img.onload=function(){
-          /* Ajustar canvas al ancho disponible */
           var maxW=cWrap.offsetWidth||700;
           var ratio=Math.min(1, maxW/img.width);
           var W=Math.round(img.width*ratio);
           var H=Math.round(img.height*ratio);
-          state.scale=img.width/W; // px canvas / px CSS
+          state.scale=img.width/W;
 
           baseC.width=img.width; baseC.height=img.height;
           drawC.width=img.width; drawC.height=img.height;
@@ -554,7 +585,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       reader.readAsDataURL(file);
     }
 
-    /* ─ Herramientas (toolbar) ─ */
     document.getElementById(annoId+'-toolbar').querySelectorAll('[data-tool]').forEach(function(btn){
       btn.addEventListener('click',function(){
         state.tool=btn.getAttribute('data-tool');
@@ -578,7 +608,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       });
     });
 
-    /* ─ Undo / Clear ─ */
     document.getElementById(annoId+'-undo').addEventListener('click',function(){
       if(state.history.length>1){
         state.history.pop();
@@ -594,9 +623,7 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       clearDraw(); state.history=[]; pushHistory();
     });
 
-    /* ─ Guardar anotaciones ─ */
     document.getElementById(annoId+'-done').addEventListener('click',function(){
-      /* Fusionar base + draw en un canvas temporal */
       var merged=document.createElement('canvas');
       merged.width=baseC.width; merged.height=baseC.height;
       var mCtx=merged.getContext('2d');
@@ -605,7 +632,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       state.finalDataUrl=merged.toDataURL('image/jpeg', 0.88);
       blockEl.setAttribute('data-annotated-url',state.finalDataUrl);
 
-      /* Mostrar preview */
       editor.classList.remove('visible');
       preview.style.display='block';
       preview.innerHTML='';
@@ -621,7 +647,7 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
         dz.style.display=''; editor.classList.remove('visible');
       });
       wrap.appendChild(pImg); wrap.appendChild(rm);
-      /* Botón editar de nuevo */
+
       var reEdit=document.createElement('button'); reEdit.type='button'; reEdit.className='ttbwr-annotate-again-btn';
       reEdit.textContent='✏️ Editar anotaciones';
       reEdit.addEventListener('click',function(){
@@ -631,8 +657,7 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       preview.appendChild(wrap); preview.appendChild(reEdit);
     });
 
-    /* ─ Dibujo con ratón / touch ─ */
-    var snapshot = null; // para herramientas no-raster (arrow, rect)
+    var snapshot = null;
 
     function getPos(e){
       var r=drawC.getBoundingClientRect();
@@ -707,7 +732,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       pushHistory();
     }
 
-    /* ─ Herramienta texto ─ */
     function spawnTextInput(cssX, cssY){
       var inp=document.createElement('input');
       inp.type='text';
@@ -725,7 +749,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
         setupCtx(dCtx,1);
         dCtx.font='bold '+(Math.max(14,state.size*state.scale*2.5))+'px sans-serif';
         dCtx.fillStyle=state.color;
-        /* Sombra para legibilidad */
         dCtx.shadowColor='rgba(0,0,0,0.7)';
         dCtx.shadowBlur=4;
         dCtx.fillText(inp.value, cssX*state.scale, (cssY-4)*state.scale);
@@ -737,7 +760,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       inp.addEventListener('blur',commit);
     }
 
-    /* ─ Primitivas ─ */
     function drawArrow(ctx,x1,y1,x2,y2){
       var headLen=Math.max(16, state.size*state.scale*3);
       var angle=Math.atan2(y2-y1,x2-x1);
@@ -758,7 +780,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
       ctx.stroke();
     }
 
-    /* ─ Historia ─ */
     function pushHistory(){
       if(state.history.length>30)state.history.shift();
       state.history.push(drawC.toDataURL());
@@ -780,7 +801,8 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
     block.querySelector('[data-move="down"]').addEventListener('click',function(){var next=block.nextElementSibling;if(next)getContainer().insertBefore(next,block);});
   }
 
-  /* Añadir primer bloque de texto vacío al inicio */
+  /* Añadir primer bloque de captura al inicio: la referencia gráfica es obligatoria */
+  addAnnotatedImageBlock();
   addTextBlock();
 
   /* ════════════════════════════════════
@@ -802,21 +824,57 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
         if(plain) hasContent=true;
         blocks.push({type:'text',html:html,idx:idx});
       } else if(type==='image'){
-        var caption=bl.querySelector('[id$="-caption"]').value.trim();
-        var annotatedUrl=bl.getAttribute('data-annotated-url')||'';
+  var caption=bl.querySelector('[id$="-caption"]').value.trim();
+  var annotatedUrl=bl.getAttribute('data-annotated-url')||'';
 
-        if(annotatedUrl||caption) hasContent=true;
+  /*
+   * FIX:
+   * Si el cliente ha subido una captura pero no ha pulsado "Guardar anotaciones",
+   * la imagen existe en el canvas, pero todavía no está guardada como dataURL.
+   * La generamos automáticamente antes de validar/enviar.
+   */
+  if(!annotatedUrl){
+    var baseCanvas = bl.querySelector('canvas.ttbwr-canvas-base');
+    var drawCanvas = bl.querySelector('canvas.ttbwr-canvas-draw');
 
-        var fileIndex=-1;
-        if(annotatedUrl){
-          fileIndex=imageFiles.length;
-          imageFiles.push({dataUrl:annotatedUrl,name:'anotacion-'+(imageFiles.length+1)+'.jpg',mimeType:'image/jpeg'});
-        }
-        blocks.push({type:'image',caption:caption,fileIndex:fileIndex,idx:idx});
-      }
+    if(baseCanvas && drawCanvas && baseCanvas.width > 0 && baseCanvas.height > 0){
+      var merged = document.createElement('canvas');
+      merged.width = baseCanvas.width;
+      merged.height = baseCanvas.height;
+
+      var mergedCtx = merged.getContext('2d');
+      mergedCtx.drawImage(baseCanvas, 0, 0);
+      mergedCtx.drawImage(drawCanvas, 0, 0);
+
+      annotatedUrl = merged.toDataURL('image/jpeg', 0.88);
+      bl.setAttribute('data-annotated-url', annotatedUrl);
+    }
+  }
+
+  if(annotatedUrl || caption) hasContent=true;
+
+  var fileIndex=-1;
+
+  if(annotatedUrl){
+    fileIndex=imageFiles.length;
+    imageFiles.push({
+      dataUrl: annotatedUrl,
+      name: 'anotacion-'+(imageFiles.length+1)+'.jpg',
+      mimeType: 'image/jpeg'
+    });
+  }
+
+  blocks.push({
+    type: 'image',
+    caption: caption,
+    fileIndex: fileIndex,
+    idx: idx
+  });
+}
     });
 
     if(!hasContent){alert('Añade al menos un comentario o imagen antes de enviar.');return;}
+    if(imageFiles.length<1){alert('Para enviar cambios es obligatorio adjuntar al menos una captura o imagen de referencia.');return;}
 
     document.getElementById('ttbwr_blocks_json').value=JSON.stringify(blocks);
 
@@ -842,7 +900,6 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
         var match=html.match(/window\.location\.replace\((.+?)\)/);
         if(match) window.location.replace(JSON.parse(match[1]));
         else {
-          // Buscar error PHP en la respuesta
           var phpErr=html.match(/(Fatal error|Warning|Parse error)[^<]*/i);
           if(phpErr) alert('Error del servidor: '+phpErr[0]);
           else window.location.reload();
@@ -900,6 +957,21 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
 
       self::js_redirect(TTB_WebRev_DB::client_url($token));
 
+    } elseif ($action === 'message') {
+      if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_webrev_message_' . $token)) {
+        TTB_WebRev_DB::log($project->id, 'nonce_failed', 'client', ['action' => 'message']);
+        self::js_redirect(TTB_WebRev_DB::client_url($token));
+      }
+
+      $message = sanitize_textarea_field($_POST['ttb_webrev_message'] ?? '');
+      if (trim($message) === '') self::js_redirect(TTB_WebRev_DB::client_url($token));
+
+      TTB_WebRev_DB::add_message($project->id, 'client', $message);
+      (new TTB_WebRev_Mailer())->send_client_message_alert($project, $message);
+      TTB_WebRev_DB::log($project->id, 'client_chat_message', 'client', ['message' => mb_substr($message, 0, 180)]);
+
+      self::js_redirect(TTB_WebRev_DB::client_url($token));
+
     } elseif ($action === 'changes') {
       if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ttb_webrev_changes_' . $token)) {
         TTB_WebRev_DB::log($project->id, 'nonce_failed', 'client', ['action' => 'changes']);
@@ -954,6 +1026,10 @@ canvas.ttbwr-canvas-draw{position:absolute;top:0;left:0;pointer-events:all}
           $uploaded[$i] = wp_get_attachment_url($att_id);
           $uploaded_count++;
         }
+      }
+
+      if ($uploaded_count < 1) {
+        self::js_redirect(TTB_WebRev_DB::client_url($token));
       }
 
       $sanitized_blocks = [];

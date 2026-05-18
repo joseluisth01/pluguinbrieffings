@@ -4,212 +4,289 @@ if (class_exists('TTB_WebRev_Mailer')) return;
 
 /**
  * TTB_WebRev_Mailer
- * Emails del módulo Revisiones Diseños
- * v2: emails usan ttb_webrev_entry=TOKEN para llevar al portal con pestañas
+ * Emails del módulo Revisiones Diseños.
  */
 class TTB_WebRev_Mailer {
 
-  private $pink  = '#D72173';
-  private $logo  = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
+  private $pink = '#d41472';
+  private $logo = 'https://tictac-comunicacion.es/wp-content/uploads/2026/02/LOGO-1-2.png';
 
-  /* ─────────────────────────────────────────────
-     URL inteligente para emails al cliente
-     Si tiene sesión → /briefing?ctab=design
-     Si no tiene sesión → autologin con ctab=design
-     Fallback → /briefing?webrev=TOKEN
-  ───────────────────────────────────────────── */
-  private function smart_url($token) {
-    return home_url('/briefing?ttb_webrev_entry=' . urlencode($token));
-  }
-
-  /* ─────────────────────────────────────────────
-     EMAIL AL CLIENTE: invitación a revisar Figma
-  ───────────────────────────────────────────── */
   public function send_review_invitation($project) {
-    $emails  = $this->parse_emails($project->emails);
+    $emails = $this->parse_emails($project->emails);
     if (!$emails) return;
 
-    $url         = $this->smart_url($project->token);
-    $subject     = get_option('ttb_webrev_email_subject', '🎨 Tu diseño web está listo para revisar — TicTac Comunicación');
-    $intro       = get_option('ttb_webrev_email_intro',   'Hemos preparado el diseño de tu proyecto. Accede al enlace para revisarlo y darnos tu feedback.');
-    $btn_label   = get_option('ttb_webrev_email_btn',     'Ver mi diseño →');
+    $subject = get_option(
+      'ttb_webrev_email_subject',
+      '🎨 Tu diseño web está listo para revisar — TicTac Comunicación'
+    );
 
-    $message = $this->tpl_invitation($project->name, $url, $subject, $intro, $btn_label);
+    $intro = get_option(
+      'ttb_webrev_email_intro',
+      'Hemos preparado el diseño de tu proyecto. Accede al enlace para revisarlo y darnos tu feedback.'
+    );
+
+    $btn = get_option(
+      'ttb_webrev_email_btn',
+      'Ver mi diseño →'
+    );
+
+    $url = TTB_WebRev_DB::client_url($project->token);
+    $html = $this->tpl_invitation($project, $url, $intro, $btn);
+
     $headers = ['Content-Type: text/html; charset=UTF-8'];
 
     foreach ($emails as $email) {
-      wp_mail(trim($email), $subject, $message, $headers);
+      wp_mail(trim($email), $subject, $html, $headers);
     }
   }
 
-  /* ─────────────────────────────────────────────
-     EMAIL INTERNO: cliente aceptó el diseño
-  ───────────────────────────────────────────── */
   public function send_accepted_alert($project) {
-    $to_hola     = get_option('ttb_webrev_notify_hola',     'hola@tictac-comunicacion.es');
-    $to_creativo = get_option('ttb_webrev_notify_creativo',  'creativo@tictac-comunicacion.es');
-    $to          = array_filter(array_map('trim', [$to_hola, $to_creativo]));
+    $to = $this->internal_recipients($project, false);
+    if (!$to) return;
 
     $subject = '✅ Diseño aceptado — ' . $project->name;
-    $message = $this->tpl_internal_accepted($project);
+    $html    = $this->tpl_internal_alert($project, 'accepted');
     $headers = ['Content-Type: text/html; charset=UTF-8'];
 
-    foreach ($to as $email) {
-      wp_mail($email, $subject, $message, $headers);
+    wp_mail($to, $subject, $html, $headers);
+  }
+
+public function send_changes_alert($project, $revision) {
+  $to = $this->internal_recipients($project, true);
+  if (!$to) return;
+
+  /*
+   * Evita duplicados:
+   * Si por cualquier motivo WordPress procesa dos veces el mismo envío,
+   * no se volverá a enviar el email de la misma revisión.
+   */
+  $lock_key = 'ttb_webrev_changes_email_sent_' . (int)$revision->id;
+
+  if (get_transient($lock_key)) {
+    return;
+  }
+
+  set_transient($lock_key, 1, HOUR_IN_SECONDS);
+
+  $project_name = $this->project_display_name($project);
+  $subject = '✏️ Cambios solicitados — ' . $project_name . ' — Ronda #' . (int)$revision->round;
+  $html    = $this->tpl_changes_alert($project, $revision);
+
+  /*
+   * Un único correo con varios destinatarios.
+   * Así no se genera un email separado por cada destinatario interno.
+   */
+  $headers = [
+    'Content-Type: text/html; charset=UTF-8'
+  ];
+
+  wp_mail($to, $subject, $html, $headers);
+}
+
+  public function send_admin_message_to_client($project, $message) {
+    $emails = $this->parse_emails($project->emails);
+    if (!$emails) return;
+
+    $url     = TTB_WebRev_DB::client_url($project->token);
+    $subject = '💬 Respuesta sobre tu diseño — ' . $project->name;
+    $html    = $this->tpl_client_chat_message($project, $message, $url);
+    $headers = ['Content-Type: text/html; charset=UTF-8'];
+
+    foreach ($emails as $email) {
+      wp_mail(trim($email), $subject, $html, $headers);
     }
   }
 
-  /* ─────────────────────────────────────────────
-     EMAIL INTERNO: cliente pidió cambios
-  ───────────────────────────────────────────── */
-  public function send_changes_alert($project, $revision) {
-    $to_hola     = get_option('ttb_webrev_notify_hola',     'hola@tictac-comunicacion.es');
-    $to_creativo = get_option('ttb_webrev_notify_creativo',  'creativo@tictac-comunicacion.es');
-    $to          = array_filter(array_map('trim', [$to_hola, $to_creativo]));
+  public function send_client_message_alert($project, $message) {
+    $to = $this->internal_recipients($project, true);
+    if (!$to) return;
 
-    $round   = (int)$revision->round;
-    $subject = '✏️ Cambios solicitados (ronda ' . $round . ') — ' . $project->name;
-    $message = $this->tpl_internal_changes($project, $revision);
+    $subject = '💬 Nuevo mensaje del cliente — ' . $project->name;
+    $html    = $this->tpl_internal_chat_message($project, $message);
     $headers = ['Content-Type: text/html; charset=UTF-8'];
 
-    foreach ($to as $email) {
-      wp_mail($email, $subject, $message, $headers);
+    wp_mail($to, $subject, $html, $headers);
+  }
+
+  private function parse_emails($raw) {
+    $emails = json_decode((string)$raw, true);
+
+    if (!is_array($emails)) {
+      $emails = explode(',', (string)$raw);
     }
+
+    $emails = array_map('trim', $emails);
+    $emails = array_filter($emails, 'is_email');
+
+    return array_values(array_unique($emails));
   }
 
-  /* ─────────────────────────────────────────────
-     HELPERS
-  ───────────────────────────────────────────── */
-  public function parse_emails($raw) {
-    $decoded = json_decode($raw, true);
-    if (is_array($decoded)) return array_filter($decoded, 'is_email');
-    return array_filter(array_map('trim', explode(',', (string)$raw)), 'is_email');
+  private function internal_recipients($project = null, $include_seo = false) {
+    $to_hola     = get_option('ttb_webrev_notify_hola', 'hola@tictac-comunicacion.es');
+    $to_creativo = get_option('ttb_webrev_notify_creativo', 'creativo@tictac-comunicacion.es');
+
+    $recipients = array_filter(array_map('trim', [
+      $to_hola,
+      $to_creativo,
+    ]));
+
+    if ($include_seo && $project && !empty($project->notify_seo)) {
+      $recipients[] = 'seo@tictac-comunicacion.es';
+    }
+
+    $recipients = array_unique(array_filter($recipients, 'is_email'));
+
+    return array_values($recipients);
   }
 
-  /* ─────────────────────────────────────────────
-     TEMPLATES
-  ───────────────────────────────────────────── */
-  private function tpl_invitation($name, $url, $subject, $intro, $btn_label) {
+  private function project_display_name($project) {
+    $name = $project->name ?? '';
+    $title = $project->title ?? '';
+
+    if ($title) {
+      return $name . ' — ' . $title;
+    }
+
+    return $name;
+  }
+
+  private function tpl_invitation($project, $url, $intro, $btn) {
     $pink = $this->pink;
     $logo = $this->logo;
-    return '<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
-<tr><td align="center">
-  <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
-    <tr>
-      <td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:40px 32px 32px">
-        <img src="' . $logo . '" alt="TicTac" width="150" style="display:block;margin:0 auto 20px">
-        <h1 style="margin:0 0 8px;color:#fff;font-size:22px;font-weight:900">🎨 Tu diseño está listo</h1>
-        <p style="margin:0;color:rgba(255,255,255,.85);font-size:15px">Ya puedes verlo y darnos tu feedback</p>
-      </td>
-    </tr>
-    <tr>
-      <td style="background:#fff;padding:36px 40px">
-        <p style="margin:0 0 6px;font-size:17px;color:#1a1a2e;font-weight:700">Hola, <span style="color:' . $pink . '">' . esc_html($name) . '</span> 👋</p>
-        <p style="margin:0 0 28px;font-size:15px;color:#4b5563;line-height:1.6">' . esc_html($intro) . '</p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
-          <tr>
-            <td align="center">
-              <a href="' . esc_url($url) . '" target="_blank" rel="noopener"
-                 style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
-                        color:#fff;text-decoration:none;font-weight:900;font-size:16px;
-                        padding:16px 40px;border-radius:14px;box-shadow:0 8px 24px rgba(215,33,115,.35)">
-                ' . esc_html($btn_label) . '
-              </a>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.5">
-          Si el botón no funciona, copia este enlace en tu navegador:<br>
-          <a href="' . esc_url($url) . '" style="color:' . $pink . ';word-break:break-all">' . esc_url($url) . '</a>
-        </p>
-      </td>
-    </tr>
-    <tr>
-      <td align="center" style="background:#1a1a2e;padding:20px 32px">
-        <p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
-      </td>
-    </tr>
-  </table>
-</td></tr>
-</table>
-</body></html>';
-  }
+    $project_name = $this->project_display_name($project);
 
-  private function tpl_internal_accepted($project) {
-    $pink = $this->pink;
-    $logo = $this->logo;
-    $portal = home_url('/briefing?section=revisiones-dis');
     return '<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
 <tr><td align="center">
-  <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
-    <tr><td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
-      <img src="' . $logo . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
-    </td></tr>
-    <tr><td style="background:#fff;padding:32px 36px">
-      <div style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:14px;padding:20px 24px;margin-bottom:24px">
-        <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#065f46">✅ ¡Diseño aceptado!</p>
-        <p style="margin:0;font-size:14px;color:#047857">El cliente ha dado el visto bueno al diseño.</p>
-      </div>
-      <div style="background:#f9fafb;border-radius:12px;padding:18px 22px;margin-bottom:24px">
-        <p style="margin:0 0 6px;font-size:14px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($project->name) . '</p>
-        <p style="margin:0 0 6px;font-size:14px;color:#1a1a2e"><strong>Figma:</strong> <a href="' . esc_url($project->figma_url) . '" style="color:' . $pink . '">' . esc_html($project->figma_url) . '</a></p>
-        <p style="margin:0;font-size:14px;color:#1a1a2e"><strong>Fecha:</strong> ' . date_i18n('d/m/Y H:i') . '</p>
-      </div>
-      <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-        <a href="' . esc_url($portal) . '" target="_blank" rel="noopener"
-           style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
-                  color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">
-          Ver en el portal →
-        </a>
-      </td></tr></table>
-    </td></tr>
-    <tr><td align="center" style="background:#1a1a2e;padding:18px 32px">
-      <p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
-    </td></tr>
-  </table>
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
+<tr>
+<td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
+<img src="' . esc_url($logo) . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
+</td>
+</tr>
+<tr>
+<td style="background:#fff;padding:32px 36px">
+<h2 style="margin:0 0 10px;color:#1a1a2e;font-size:22px">Tu diseño está listo para revisar</h2>
+<p style="margin:0 0 18px;color:#4b5563;font-size:15px;line-height:1.6">' . esc_html($intro) . '</p>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;margin-bottom:24px">
+<p style="margin:0;color:#1a1a2e;font-size:14px"><strong>Proyecto:</strong> ' . esc_html($project_name) . '</p>
+</div>
+<table width="100%" cellpadding="0" cellspacing="0">
+<tr><td align="center">
+<a href="' . esc_url($url) . '" target="_blank" rel="noopener" style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">' . esc_html($btn) . '</a>
 </td></tr>
 </table>
-</body></html>';
+<p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6">Desde el portal podrás aceptar el diseño o solicitar cambios con capturas y anotaciones.</p>
+</td>
+</tr>
+<tr>
+<td align="center" style="background:#1a1a2e;padding:18px 32px">
+<p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
+</td>
+</tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>';
   }
 
-  private function tpl_internal_changes($project, $revision) {
-    $pink    = $this->pink;
-    $logo    = $this->logo;
-    $portal  = home_url('/briefing?section=revisiones-dis');
-    $round   = (int)$revision->round;
+  private function tpl_internal_alert($project, $type) {
+    $pink = $this->pink;
+    $logo = $this->logo;
+    $project_name = $this->project_display_name($project);
+    $portal = home_url('/briefing?section=revisiones-dis&wrtab=revisions&project=' . (int)$project->id);
 
-    $blocks_raw = json_decode((string)$revision->images, true);
-    $is_blocks  = is_array($blocks_raw) && !empty($blocks_raw) && isset($blocks_raw[0]['type']);
+    $title = $type === 'accepted'
+      ? '✅ Diseño aceptado'
+      : 'Actualización de revisión';
 
-    $content_html = '';
-    if ($is_blocks) {
-      foreach ($blocks_raw as $bl) {
-        $type = $bl['type'] ?? '';
-        if ($type === 'text' && !empty($bl['html'])) {
-          $content_html .= '<div style="margin-bottom:16px;font-size:15px;color:#1a1a2e;line-height:1.7">' . wp_kses_post($bl['html']) . '</div>';
-        } elseif ($type === 'image') {
-          $content_html .= '<div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">';
-          if (!empty($bl['image_url'])) {
-            $content_html .= '<a href="' . esc_url($bl['image_url']) . '" target="_blank"><img src="' . esc_url($bl['image_url']) . '" style="width:100%;max-height:320px;object-fit:contain;display:block;background:#f4f4f4" alt="Adjunto"></a>';
+    $text = $type === 'accepted'
+      ? 'El cliente ha aceptado el diseño desde el portal de revisiones.'
+      : 'Hay una actualización en el portal de revisión de diseño.';
+
+    return '<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
+<tr>
+<td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
+<img src="' . esc_url($logo) . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
+</td>
+</tr>
+<tr>
+<td style="background:#fff;padding:32px 36px">
+<h2 style="margin:0 0 10px;color:#1a1a2e;font-size:22px">' . esc_html($title) . '</h2>
+<p style="margin:0 0 18px;color:#4b5563;font-size:15px;line-height:1.6">' . esc_html($text) . '</p>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;margin-bottom:24px">
+<p style="margin:0;color:#1a1a2e;font-size:14px"><strong>Proyecto:</strong> ' . esc_html($project_name) . '</p>
+</div>
+<table width="100%" cellpadding="0" cellspacing="0">
+<tr><td align="center">
+<a href="' . esc_url($portal) . '" target="_blank" rel="noopener" style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">Ver proyecto →</a>
+</td></tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="center" style="background:#1a1a2e;padding:18px 32px">
+<p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
+</td>
+</tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>';
+  }
+
+  private function tpl_changes_alert($project, $revision) {
+    $pink = $this->pink;
+    $logo = $this->logo;
+    $project_name = $this->project_display_name($project);
+    $portal = home_url('/briefing?section=revisiones-dis&wrtab=revisions&project=' . (int)$project->id);
+
+    $blocks = [];
+    if (!empty($revision->images)) {
+      $decoded = json_decode($revision->images, true);
+      if (is_array($decoded)) {
+        $blocks = $decoded;
+      }
+    }
+
+    $blocks_html = '';
+
+    if ($blocks) {
+      foreach ($blocks as $block) {
+        if (($block['type'] ?? '') === 'text') {
+          $html = wp_kses_post($block['html'] ?? '');
+          if ($html) {
+            $blocks_html .= '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;margin:12px 0;color:#1a1a2e;font-size:14px;line-height:1.7">' . $html . '</div>';
           }
-          if (!empty($bl['caption'])) {
-            $content_html .= '<div style="padding:10px 14px;font-size:14px;color:#374151;line-height:1.6;border-top:1px solid #f3f4f6">' . nl2br(esc_html($bl['caption'])) . '</div>';
+        }
+
+        if (($block['type'] ?? '') === 'image') {
+          $caption = sanitize_textarea_field($block['caption'] ?? '');
+          $image = esc_url($block['image_url'] ?? '');
+
+          $blocks_html .= '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:14px 16px;margin:12px 0">';
+          if ($caption) {
+            $blocks_html .= '<p style="margin:0 0 12px;color:#1a1a2e;font-size:14px;line-height:1.7">' . nl2br(esc_html($caption)) . '</p>';
           }
-          $content_html .= '</div>';
+          if ($image) {
+            $blocks_html .= '<a href="' . $image . '" target="_blank" rel="noopener" style="color:' . $pink . ';font-weight:900;text-decoration:none">Ver captura anotada →</a>';
+          }
+          $blocks_html .= '</div>';
         }
       }
     } else {
-      if ($revision->message) {
-        $content_html .= '<p style="font-size:15px;color:#1a1a2e;line-height:1.6;white-space:pre-line">' . esc_html($revision->message) . '</p>';
-      }
+      $blocks_html = '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;margin:12px 0;color:#1a1a2e;font-size:14px;line-height:1.7">' . nl2br(esc_html($revision->message ?? '')) . '</div>';
     }
 
     return '<!DOCTYPE html>
@@ -218,34 +295,118 @@ class TTB_WebRev_Mailer {
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
 <tr><td align="center">
-  <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
-    <tr><td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
-      <img src="' . $logo . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
-    </td></tr>
-    <tr><td style="background:#fff;padding:32px 36px">
-      <div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:14px;padding:20px 24px;margin-bottom:24px">
-        <p style="margin:0 0 4px;font-size:20px;font-weight:900;color:#92400e">✏️ Cambios solicitados — Ronda ' . $round . '</p>
-        <p style="margin:0;font-size:14px;color:#b45309">El cliente ha pedido modificaciones en el diseño.</p>
-      </div>
-      <div style="background:#f9fafb;border-radius:12px;padding:18px 22px;margin-bottom:24px">
-        <p style="margin:0 0 6px;font-size:14px;color:#1a1a2e"><strong>Cliente:</strong> ' . esc_html($project->name) . '</p>
-        <p style="margin:0;font-size:14px;color:#1a1a2e"><strong>Figma:</strong> <a href="' . esc_url($project->figma_url) . '" style="color:' . $pink . '">' . esc_html($project->figma_url) . '</a></p>
-      </div>
-      ' . ($content_html ? '<div style="margin-bottom:24px">' . $content_html . '</div>' : '') . '
-      <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-        <a href="' . esc_url($portal) . '" target="_blank" rel="noopener"
-           style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);
-                  color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">
-          Ver en el portal →
-        </a>
-      </td></tr></table>
-    </td></tr>
-    <tr><td align="center" style="background:#1a1a2e;padding:18px 32px">
-      <p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
-    </td></tr>
-  </table>
+<table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
+<tr>
+<td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
+<img src="' . esc_url($logo) . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
+</td>
+</tr>
+<tr>
+<td style="background:#fff;padding:32px 36px">
+<h2 style="margin:0 0 10px;color:#1a1a2e;font-size:22px">✏️ El cliente ha solicitado cambios</h2>
+<p style="margin:0 0 8px;color:#1a1a2e;font-size:15px"><strong>Proyecto:</strong> ' . esc_html($project_name) . '</p>
+<p style="margin:0 0 20px;color:#6b7280;font-size:14px">Ronda #' . (int)$revision->round . '</p>
+' . $blocks_html . '
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:24px">
+<tr><td align="center">
+<a href="' . esc_url($portal) . '" target="_blank" rel="noopener" style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">Ver revisión completa →</a>
 </td></tr>
 </table>
-</body></html>';
+</td>
+</tr>
+<tr>
+<td align="center" style="background:#1a1a2e;padding:18px 32px">
+<p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
+</td>
+</tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>';
+  }
+
+  private function tpl_client_chat_message($project, $message, $url) {
+    $pink = $this->pink;
+    $logo = $this->logo;
+    $project_name = $this->project_display_name($project);
+
+    return '<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
+<tr>
+<td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
+<img src="' . esc_url($logo) . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
+</td>
+</tr>
+<tr>
+<td style="background:#fff;padding:32px 36px">
+<h2 style="margin:0 0 10px;color:#1a1a2e;font-size:22px">💬 Tienes una respuesta sobre tu diseño</h2>
+<p style="margin:0 0 10px;color:#4b5563;font-size:15px;line-height:1.6">El equipo de TicTac Comunicación te ha dejado un mensaje en el portal de revisión.</p>
+<p style="margin:0 0 18px;color:#1a1a2e;font-size:14px"><strong>Proyecto:</strong> ' . esc_html($project_name) . '</p>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;margin-bottom:24px;color:#1a1a2e;font-size:15px;line-height:1.7">' . nl2br(esc_html($message)) . '</div>
+<table width="100%" cellpadding="0" cellspacing="0">
+<tr><td align="center">
+<a href="' . esc_url($url) . '" target="_blank" rel="noopener" style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">Responder en el portal →</a>
+</td></tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="center" style="background:#1a1a2e;padding:18px 32px">
+<p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
+</td>
+</tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>';
+  }
+
+  private function tpl_internal_chat_message($project, $message) {
+    $pink = $this->pink;
+    $logo = $this->logo;
+    $project_name = $this->project_display_name($project);
+    $portal = home_url('/briefing?section=revisiones-dis&wrtab=revisions&project=' . (int)$project->id);
+
+    return '<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.12)">
+<tr>
+<td align="center" style="background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);padding:28px 32px">
+<img src="' . esc_url($logo) . '" alt="TicTac" width="130" style="display:block;margin:0 auto">
+</td>
+</tr>
+<tr>
+<td style="background:#fff;padding:32px 36px">
+<h2 style="margin:0 0 10px;color:#1a1a2e;font-size:22px">💬 Nuevo mensaje del cliente</h2>
+<p style="margin:0 0 6px;color:#1a1a2e;font-size:15px"><strong>Proyecto:</strong> ' . esc_html($project_name) . '</p>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;margin:18px 0 24px;color:#1a1a2e;font-size:15px;line-height:1.7">' . nl2br(esc_html($message)) . '</div>
+<table width="100%" cellpadding="0" cellspacing="0">
+<tr><td align="center">
+<a href="' . esc_url($portal) . '" target="_blank" rel="noopener" style="display:inline-block;background:linear-gradient(135deg,' . $pink . ' 0%,#a8005a 100%);color:#fff;text-decoration:none;font-weight:900;font-size:15px;padding:14px 36px;border-radius:12px">Ver y responder →</a>
+</td></tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="center" style="background:#1a1a2e;padding:18px 32px">
+<p style="margin:0;font-size:12px;color:rgba(255,255,255,.4)">© ' . date('Y') . ' TicTac Comunicación Digital</p>
+</td>
+</tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>';
   }
 }
